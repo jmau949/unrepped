@@ -1,0 +1,114 @@
+# SF Peninsula / South Bay — the example geography this project shipped with.
+# Copy to <repo-root>/geography.toml and edit, or point GEOGRAPHY_FILE at your
+# own copy. Schema: docs/packs/README.md.
+
+schema = 1
+name = "SF Peninsula"            # metro label used in UI copy
+state = "CA"
+state_fips = "06"
+timezone = "America/Los_Angeles" # open-house wall clocks; "this weekend" windows
+pack = "ca"                      # state pack (transaction rules, forms, disclosures)
+
+[map]
+center = [-122.2, 37.55]         # [lon, lat] of the dashboard map's home view
+zoom = 9
+
+[price_band]                     # alerts + default UI filters only — never an ingestion filter
+min = 2000000
+max = 3000000
+
+[market]
+case_shiller_fred_id = "SFXRSA"  # FRED id of the metro Case-Shiller index; omit if none
+hazard_bbox = [-122.55, 37.05, -121.20, 37.95]   # lon/lat envelope for bbox-driven hazard layers
+
+[costs]                          # year + label stamped on repair/closing cost ranges
+year = 2026
+label = "SF-Peninsula contractor ranges"
+
+# Counties: `name` must match Redfin's county region name minus ", CA".
+# effective_tax_rate is the all-in rate incl. typical parcel taxes — an estimate
+# until verified against a real county bill.
+
+[[counties]]
+name = "San Mateo County"
+fips = "081"
+effective_tax_rate = 0.0115
+assessor_label = "San Mateo County Assessor-County Clerk-Recorder"
+assessor_url = "https://www.smcacre.org/"
+transfer_tax_note = "County documentary transfer tax $1.10 per $1,000, customarily seller-paid. City of San Mateo adds $5.00 per $1,000, split buyer/seller. Verify against a current title-company 'Who Pays What' sheet."
+
+[[counties]]
+name = "Santa Clara County"
+fips = "085"
+effective_tax_rate = 0.0128
+assessor_label = "Santa Clara County Assessor"
+assessor_url = "https://www.sccassessor.org/"
+transfer_tax_note = "County documentary transfer tax $1.10 per $1,000. San Jose, Palo Alto and Mountain View add a city transfer tax of $3.30 per $1,000. Verify against a current title-company 'Who Pays What' sheet."
+
+# Cities: name as the scrapers spell it, the county above, and every ZIP5 to
+# track. `tax_rate` overrides the county rate; `flags` are read by the state
+# pack ("sewer_lateral_pos" = city point-of-sale sewer-lateral ordinance).
+
+[[cities]]
+name = "Santa Clara"
+county = "Santa Clara County"
+zips = ["95050", "95051", "95054"]
+
+[[cities]]
+name = "Sunnyvale"
+county = "Santa Clara County"
+zips = ["94085", "94086", "94087", "94089"]
+
+[[cities]]
+name = "Mountain View"
+county = "Santa Clara County"
+zips = ["94040", "94041", "94043"]
+
+[[cities]]
+name = "Redwood City"
+county = "San Mateo County"
+zips = ["94061", "94062", "94063", "94065"]
+
+[[cities]]
+name = "Menlo Park"
+county = "San Mateo County"
+zips = ["94025"]
+
+[[cities]]
+name = "Palo Alto"
+county = "Santa Clara County"
+zips = ["94301", "94303", "94306"]
+
+[[cities]]
+name = "San Mateo"
+county = "San Mateo County"
+zips = ["94401", "94402", "94403", "94404"]
+flags = ["sewer_lateral_pos"]
+
+[[cities]]
+name = "Burlingame"
+county = "San Mateo County"
+zips = ["94010"]
+flags = ["sewer_lateral_pos"]
+
+[[cities]]
+name = "San Carlos"
+county = "San Mateo County"
+zips = ["94070"]
+
+[[cities]]
+name = "Belmont"
+county = "San Mateo County"
+zips = ["94002"]
+
+[[cities]]
+name = "Millbrae"
+county = "San Mateo County"
+zips = ["94030"]
+flags = ["sewer_lateral_pos"]
+
+[[cities]]
+name = "San Bruno"
+county = "San Mateo County"
+zips = ["94066"]
+flags = ["sewer_lateral_pos"]

@@ -1,0 +1,71 @@
+# Reference data for `hb setup` (hb/setup_geo.py): each state's two-digit FIPS
+# code and the IANA time zones its counties use, most populous first. A state
+# with one zone needs no question; for the rest the wizard asks, defaulting to
+# the first. Not a geography: nothing here is read once geography.toml exists.
+
+[zones]                          # how the wizard names a zone when it asks
+"America/New_York" = "Eastern"
+"America/Detroit" = "Eastern"
+"America/Indiana/Indianapolis" = "Eastern"
+"America/Chicago" = "Central"
+"America/Menominee" = "Central"
+"America/Denver" = "Mountain"
+"America/Boise" = "Mountain"
+"America/Phoenix" = "Mountain, no daylight saving"
+"America/Los_Angeles" = "Pacific"
+"America/Anchorage" = "Alaska"
+"America/Adak" = "Hawaii-Aleutian"
+"Pacific/Honolulu" = "Hawaii"
+
+[states]
+AL = { name = "Alabama", fips = "01", zones = ["America/Chicago"] }
+AK = { name = "Alaska", fips = "02", zones = ["America/Anchorage", "America/Adak"] }
+AZ = { name = "Arizona", fips = "04", zones = ["America/Phoenix"] }
+AR = { name = "Arkansas", fips = "05", zones = ["America/Chicago"] }
+CA = { name = "California", fips = "06", zones = ["America/Los_Angeles"] }
+CO = { name = "Colorado", fips = "08", zones = ["America/Denver"] }
+CT = { name = "Connecticut", fips = "09", zones = ["America/New_York"] }
+DE = { name = "Delaware", fips = "10", zones = ["America/New_York"] }
+DC = { name = "District of Columbia", fips = "11", zones = ["America/New_York"] }
+FL = { name = "Florida", fips = "12", zones = ["America/New_York", "America/Chicago"] }
+GA = { name = "Georgia", fips = "13", zones = ["America/New_York"] }
+HI = { name = "Hawaii", fips = "15", zones = ["Pacific/Honolulu"] }
+ID = { name = "Idaho", fips = "16", zones = ["America/Boise", "America/Los_Angeles"] }
+IL = { name = "Illinois", fips = "17", zones = ["America/Chicago"] }
+IN = { name = "Indiana", fips = "18", zones = ["America/Indiana/Indianapolis", "America/Chicago"] }
+IA = { name = "Iowa", fips = "19", zones = ["America/Chicago"] }
+KS = { name = "Kansas", fips = "20", zones = ["America/Chicago", "America/Denver"] }
+KY = { name = "Kentucky", fips = "21", zones = ["America/New_York", "America/Chicago"] }
+LA = { name = "Louisiana", fips = "22", zones = ["America/Chicago"] }
+ME = { name = "Maine", fips = "23", zones = ["America/New_York"] }
+MD = { name = "Maryland", fips = "24", zones = ["America/New_York"] }
+MA = { name = "Massachusetts", fips = "25", zones = ["America/New_York"] }
+MI = { name = "Michigan", fips = "26", zones = ["America/Detroit", "America/Menominee"] }
+MN = { name = "Minnesota", fips = "27", zones = ["America/Chicago"] }
+MS = { name = "Mississippi", fips = "28", zones = ["America/Chicago"] }
+MO = { name = "Missouri", fips = "29", zones = ["America/Chicago"] }
+MT = { name = "Montana", fips = "30", zones = ["America/Denver"] }
+NE = { name = "Nebraska", fips = "31", zones = ["America/Chicago", "America/Denver"] }
+NV = { name = "Nevada", fips = "32", zones = ["America/Los_Angeles"] }
+NH = { name = "New Hampshire", fips = "33", zones = ["America/New_York"] }
+NJ = { name = "New Jersey", fips = "34", zones = ["America/New_York"] }
+NM = { name = "New Mexico", fips = "35", zones = ["America/Denver"] }
+NY = { name = "New York", fips = "36", zones = ["America/New_York"] }
+NC = { name = "North Carolina", fips = "37", zones = ["America/New_York"] }
+ND = { name = "North Dakota", fips = "38", zones = ["America/Chicago", "America/Denver"] }
+OH = { name = "Ohio", fips = "39", zones = ["America/New_York"] }
+OK = { name = "Oklahoma", fips = "40", zones = ["America/Chicago"] }
+OR = { name = "Oregon", fips = "41", zones = ["America/Los_Angeles", "America/Boise"] }
+PA = { name = "Pennsylvania", fips = "42", zones = ["America/New_York"] }
+RI = { name = "Rhode Island", fips = "44", zones = ["America/New_York"] }
+SC = { name = "South Carolina", fips = "45", zones = ["America/New_York"] }
+SD = { name = "South Dakota", fips = "46", zones = ["America/Chicago", "America/Denver"] }
+TN = { name = "Tennessee", fips = "47", zones = ["America/Chicago", "America/New_York"] }
+TX = { name = "Texas", fips = "48", zones = ["America/Chicago", "America/Denver"] }
+UT = { name = "Utah", fips = "49", zones = ["America/Denver"] }
+VT = { name = "Vermont", fips = "50", zones = ["America/New_York"] }
+VA = { name = "Virginia", fips = "51", zones = ["America/New_York"] }
+WA = { name = "Washington", fips = "53", zones = ["America/Los_Angeles"] }
+WV = { name = "West Virginia", fips = "54", zones = ["America/New_York"] }
+WI = { name = "Wisconsin", fips = "55", zones = ["America/Chicago"] }
+WY = { name = "Wyoming", fips = "56", zones = ["America/Denver"] }

@@ -1,0 +1,18 @@
+# `hb pipeline daily --catch-up`, fired hourly by hb-daily.timer (docs/05 §2):
+# runs only when the DAILY_TIMES slot (04:00) has no completed run yet, then
+# writes the nightly DB copy to data/backups/ and prunes the raw cache.
+# --no-sync: a scheduled run never re-syncs the venv (ops/deploy-server.sh does).
+
+[Unit]
+Description=home-buying daily pipelines (catch-up)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/hb/data/photos /srv/hb/data/raw
+
+[Service]
+Type=oneshot
+User=hb
+Group=hb
+WorkingDirectory=/srv/hb/app/backend
+ExecStart=/home/hb/.local/bin/uv run --no-sync hb pipeline daily --catch-up
+TimeoutStartSec=2h

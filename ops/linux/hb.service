@@ -1,0 +1,29 @@
+# The always-on server on the home server (docs/11 §2b, docs/16): `hb serve`, plain HTTP
+# on 18800, which `tailscale serve` fronts with HTTPS. Restarted by
+# ops/deploy-server.sh through the sudoers line in hb.sudoers.
+#
+# RequiresMountsFor: photos/ and raw/ are bind mounts of the second disk. If it
+# is missing the server stays down rather than writing into the empty mountpoints
+# on the system disk. Without a second disk they are plain directories, the
+# requirement resolves to the root mount, and the unit starts normally (docs/16 §4.2).
+
+[Unit]
+Description=home-buying server (hb serve on 18800)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/hb/data/photos /srv/hb/data/raw
+
+[Service]
+Type=simple
+User=hb
+Group=hb
+WorkingDirectory=/srv/hb/app/backend
+ExecStart=/home/hb/.local/bin/uv run --no-sync hb serve
+# The timers (hb-daily/hb-scan/hb-alerts) run the jobs here; the hourly check
+# inside `hb serve` stays off (docs/05 §2).
+Environment=HB_SERVE_SCHEDULER=false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

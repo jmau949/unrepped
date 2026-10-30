@@ -1,0 +1,12 @@
+# Template: the three scheduled jobs as cron lines (docs/11-deployment.md §2a).
+# `make schedule` (hb schedule install) writes the equivalent for you — launchd on
+# macOS, systemd --user timers on Linux, or this block in your crontab where there
+# is no systemd user instance — with the paths filled in. To do it by hand instead,
+# edit the repo path and log locations and install with `crontab -e`.
+# The pipeline jobs fire hourly with --catch-up: `hb` runs a job only when its
+# latest slot (SCAN_TIMES / DAILY_TIMES, local wall-clock) has no completed run
+# yet, so a missed slot is retried within the hour. --no-sync keeps a scheduled
+# run from re-syncing the venv under the running server (`make install` syncs).
+0 * * * *  cd /opt/home-buying/backend && uv run --no-sync hb pipeline daily --catch-up        >> /var/log/hb-daily.log 2>&1
+0 * * * *  cd /opt/home-buying/backend && uv run --no-sync hb pipeline listing-scan --catch-up >> /var/log/hb-scan.log 2>&1
+30 * * * * cd /opt/home-buying/backend && uv run --no-sync hb alerts send                      >> /var/log/hb-alerts.log 2>&1

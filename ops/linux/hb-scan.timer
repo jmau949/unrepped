@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly catch-up check for the home-buying listing scan
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

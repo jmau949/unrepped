@@ -1,0 +1,17 @@
+# `hb pipeline listing-scan --catch-up`, fired hourly by hb-scan.timer (docs/05 §2):
+# runs only when a SCAN_TIMES slot (05:00, 15:00) has no completed run yet, and
+# refreshes open houses in its tail.
+
+[Unit]
+Description=home-buying listing scan (catch-up)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/hb/data/photos /srv/hb/data/raw
+
+[Service]
+Type=oneshot
+User=hb
+Group=hb
+WorkingDirectory=/srv/hb/app/backend
+ExecStart=/home/hb/.local/bin/uv run --no-sync hb pipeline listing-scan --catch-up
+TimeoutStartSec=2h

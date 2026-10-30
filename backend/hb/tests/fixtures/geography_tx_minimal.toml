@@ -1,0 +1,30 @@
+# Minimal non-California geography used by the loader and generic-pack tests.
+schema = 1
+name = "Test Metro"
+state = "TX"
+state_fips = "48"
+timezone = "America/Chicago"
+
+[map]
+center = [-97.74, 30.27]
+zoom = 10
+
+[price_band]
+min = 400000
+max = 700000
+
+[[counties]]
+name = "Travis County"
+fips = "453"
+effective_tax_rate = 0.0190
+
+[[cities]]
+name = "Austin"
+county = "Travis County"
+zips = ["78701", "78704"]
+
+[[cities]]
+name = "Pflugerville"
+county = "Travis County"
+zips = ["78660"]
+tax_rate = 0.0215

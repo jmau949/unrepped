@@ -1,0 +1,15 @@
+# Per-checkout settings for the Makefile. Copy to config.mk (gitignored) and edit.
+# Only an always-on setup needs this file: `make serve` and the dev servers never read it.
+#
+# What `make deploy` runs (docs/11 §1):
+#   local   - the machine this checkout runs on: on Windows, rebuild the SPA and restart the
+#             always-on "HB API Server" task (ops/windows-lan.ps1); on macOS/Linux, rebuild
+#             the SPA and remind you to restart the service (docs/11 §2a). Also the value for
+#             Tailscale on your own computer (docs/11 §2c).
+#   server  - ship to the app's own host (a VM and/or an alternate machine) over Tailscale SSH (ops/deploy-server.sh; docs/16 is
+#             the walk-through, docs/11 §2b what the repo implements)
+DEPLOY = local
+
+# Home server only: the SSH target ops/deploy-server.sh ships to. Default hb@hb, the
+# MagicDNS name of a machine called `hb` reached as its user `hb` (docs/16 §5).
+# HB_SSH = hb@hb

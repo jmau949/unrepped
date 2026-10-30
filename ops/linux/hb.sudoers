@@ -1,0 +1,4 @@
+# Installed as /etc/sudoers.d/hb by install.sh. Lets the deploy
+# (ops/deploy-server.sh) and the data move (docs/16 §8) stop, start and restart
+# the server over a non-interactive SSH session, and nothing else.
+hb ALL=(root) NOPASSWD: /usr/bin/systemctl restart hb, /usr/bin/systemctl stop hb, /usr/bin/systemctl start hb

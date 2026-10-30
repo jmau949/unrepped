@@ -1,0 +1,7 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Shipped to the Linux VM as-is by ops/deploy-server.sh: bash, systemd and sudo
+# all reject CRLF, so these stay LF in the working tree on Windows too.
+*.sh text eol=lf
+ops/linux/** text eol=lf

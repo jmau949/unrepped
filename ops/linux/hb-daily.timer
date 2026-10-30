@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly catch-up check for the home-buying daily pipelines
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

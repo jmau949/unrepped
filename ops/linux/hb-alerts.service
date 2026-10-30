@@ -1,0 +1,15 @@
+# `hb alerts send` at :30 every hour: delivers queued alerts through the server's
+# `pushover` channel (ALERT_CHANNELS in /srv/hb/app/.env).
+
+[Unit]
+Description=home-buying alert delivery
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=hb
+Group=hb
+WorkingDirectory=/srv/hb/app/backend
+ExecStart=/home/hb/.local/bin/uv run --no-sync hb alerts send
+TimeoutStartSec=15min
