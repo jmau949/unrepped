@@ -2,6 +2,8 @@
 
 I built this for my own home search: buying a single-family home as a first-time buyer, without a buyer's agent. It's a personal app: you run your own copy, on your own computer, for the area you're buying in.
 
+![Recently Sold: every sale near your price range, with the listing photos saved, on a map](docs/screenshots/recently-sold.png)
+
 ## Why I built it
 
 **Recently sold homes are the best guide to what you can afford.** They show you what a given budget actually buys: the quality, the location, the square footage, whether it was renovated. The problem is that once a home sells, Redfin and Zillow take the photos down. Without them, you can't tell *why* a house sold for that price. Was it the brand-new kitchen? The bigger lot? Or just a hot week?
@@ -26,6 +28,26 @@ This app keeps the photos. It saves every listing's pictures on your computer wh
 - **Listing agent contact info**: the agent's direct phone and email on every listing.
 
 The full feature tour is in [`docs/00-product-requirements.md`](docs/00-product-requirements.md).
+
+## Screenshots
+
+Addresses, agent contacts and the price band are blurred.
+
+**A listing**: photos, the predicted sale price and bid advice.
+
+![Listing page with photo gallery, predicted sale price and bid floor](docs/screenshots/listing.png)
+
+**Comps**: the closest recent sales on a map, with every adjustment to their sale prices shown.
+
+![CMA workbench: comp map, adjustment grid and candidate comps](docs/screenshots/comps.png)
+
+**Market dashboard**: prices, sale-to-list, days on market, inventory and supply for every ZIP.
+
+![Dashboard: focus-ZIP trend tiles and the ZIP comparison table](docs/screenshots/dashboard.png)
+
+**Field** on a phone: the tour checklist, one screen at a time.
+
+<img src="docs/screenshots/field.png" alt="Field page on a phone: the Outside checklist for one home" width="320">
 
 ## Two ways to run it
 
