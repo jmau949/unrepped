@@ -433,6 +433,54 @@ def test_alert_rules_roundtrip(client, seeded):
     assert "rate_move" in updated  # merge, not replace
 
 
+def _alert(session, listing_id, suffix, **over):
+    alert = Alert(type="offer_date_soon", listing_id=listing_id,
+                  dedup_key=f"offer_date_soon:{listing_id}:{suffix}", **over)
+    session.add(alert)
+    session.commit()
+    return alert.id
+
+
+def test_alert_read_marks_and_counts(client, seeded, session):
+    """Reading an alert in the inbox stamps `read_at` — and `delivered_at` with channel `ui`
+    when no channel has run yet, so the hourly send never pushes something already seen."""
+    listing_id = seeded[0].id
+    a1 = _alert(session, listing_id, "a")
+    a2 = _alert(session, listing_id, "b")
+    assert {a["id"] for a in client.get("/api/alerts?unread_only=true").json()} == {a1, a2}
+
+    first = client.post(f"/api/alerts/{a1}/read").json()
+    assert first["read_at"] is not None
+    row = next(a for a in client.get("/api/alerts").json() if a["id"] == a1)
+    assert row["read_at"] == first["read_at"]
+    assert row["delivered_at"] == first["read_at"] and row["channel"] == "ui"
+    assert [a["id"] for a in client.get("/api/alerts?unread_only=true").json()] == [a2]
+
+    assert client.post(f"/api/alerts/{a1}/read").json()["read_at"] == first["read_at"]  # idempotent
+    assert client.post("/api/alerts/nope/read").status_code == 404
+
+
+def test_alert_read_keeps_channel_delivery(client, seeded, session):
+    listing_id = seeded[0].id
+    aid = _alert(session, listing_id, "c", delivered_at="2026-07-14T12:30:00+00:00",
+                 channel="toast,log")
+    assert client.post(f"/api/alerts/{aid}/read").status_code == 200
+    row = next(a for a in client.get("/api/alerts").json() if a["id"] == aid)
+    assert row["read_at"] is not None
+    assert row["delivered_at"] == "2026-07-14T12:30:00+00:00" and row["channel"] == "toast,log"
+
+
+def test_alert_read_all(client, seeded, session):
+    listing_id = seeded[0].id
+    already = _alert(session, listing_id, "d", read_at="2026-07-14T12:00:00+00:00")
+    _alert(session, listing_id, "e")
+    _alert(session, listing_id, "f")
+    assert client.post("/api/alerts/read-all").json() == {"marked": 2}
+    assert client.get("/api/alerts?unread_only=true").json() == []
+    row = next(a for a in client.get("/api/alerts").json() if a["id"] == already)
+    assert row["read_at"] == "2026-07-14T12:00:00+00:00"  # untouched
+
+
 def test_profile_and_calc_endpoints(client, seeded):
     profile = client.get("/api/profile").json()
     assert profile["down_payment"] == 0  # dollars, unset by default

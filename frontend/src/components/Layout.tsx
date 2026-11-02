@@ -32,13 +32,14 @@ const NAV: NavItem[] = [
 
 export default function Layout() {
   const health = useQuery({ queryKey: ["health"], queryFn: getHealth, refetchInterval: 60_000 });
-  // alerts no channel has delivered yet; the Alerts page's ack invalidates ["alerts"]
-  const pending = useQuery({
-    queryKey: ["alerts", "undelivered"],
+  // alerts the buyer has not opened yet; reading one on the Alerts page
+  // invalidates ["alerts"], which reaches this key too
+  const unread = useQuery({
+    queryKey: ["alerts", "unread"],
     queryFn: () => getAlerts(100, true),
     refetchInterval: 60_000,
   });
-  const pendingCount = pending.data?.length;
+  const unreadCount = unread.data?.length;
   // Every page reads the configured geography and pack from this one cached
   // query — mount it in the shell so it is in flight before the first page asks.
   useConfig();
@@ -167,14 +168,16 @@ export default function Layout() {
               )}
             </div>
           </div>
-          <Link to="/alerts" title="Alerts not yet delivered by any channel"
-                className={`rounded-full px-3 py-1 text-xs ${pendingCount
+          <Link to="/alerts" title="Unread alerts"
+                className={`rounded-full px-3 py-1 text-xs ${unreadCount
                   ? "bg-amber-100 font-medium text-amber-800" : "bg-slate-100 text-slate-500"}`}>
-            alerts: {pendingCount == null ? "–" : pendingCount >= 100 ? "100+" : pendingCount}
+            alerts: {unreadCount == null ? "–" : unreadCount >= 100 ? "100+" : unreadCount}
           </Link>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+        {/* the id keys the router's scroll restoration (router.tsx) to this
+            element, not to a DOM path the phone's nav drawer would shift */}
+        <main data-scroll-restoration-id="main" className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>

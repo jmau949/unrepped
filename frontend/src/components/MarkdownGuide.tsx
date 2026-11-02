@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getClosingGuide } from "../api/client";
+import ExtLink from "./ExtLink";
 
 /** The pack's closing playbook, rendered from the markdown doc the repo maintains
  *  (GET /api/guide/closing) — one collapsible chapter per numbered section; the
@@ -48,9 +49,7 @@ const MD: Components = {
   h4: ({ children }) => <h4 className="pt-1 text-sm font-semibold">{children}</h4>,
   p: ({ children }) => <p>{children}</p>,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-sky-700 underline">
-      {children}
-    </a>
+    <ExtLink href={href ?? ""} className="text-sky-700 underline">{children}</ExtLink>
   ),
   ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,

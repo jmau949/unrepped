@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getListings,
@@ -10,37 +10,55 @@ import {
   type ListingFilters,
 } from "../api/client";
 import ListingBadges from "../components/ListingBadges";
+import ListingLink from "../components/ListingLink";
 import LazyMapView from "../components/LazyMapView";
 import type { MapBounds } from "../components/MapView";
 import { useCities } from "../lib/config";
 import { deltaVsAsk, money, pct } from "../lib/format";
+import { useOpenListing } from "../lib/openListing";
+import { loadSaved, save } from "../lib/sessionSaved";
 import MoneyInput from "../components/MoneyInput";
+
+/** Where the buyer was, kept per browser tab: the detail page opens in this
+ *  tab, and coming back (or a phone reloading a discarded tab) must land on
+ *  the same filters and search; the list's scroll comes back through the
+ *  router (router.tsx). */
+type Saved = { filters?: ListingFilters; queryText?: string };
+const SAVED_KEY = "hb.listings.v1";
 
 export default function Listings() {
   const search = useSearch({ strict: false }) as Record<string, string | undefined>;
+  const navigate = useNavigate();
   const cities = useCities();
-  const openDetail = (id: string) =>
-    window.open(`/listings/${id}`, "_blank", "noopener,noreferrer");
+  const openDetail = useOpenListing();
   const qc = useQueryClient();
   const summary = useQuery({ queryKey: ["market-summary"], queryFn: getMarketSummary });
   const band = summary.data?.target_band;
 
+  // a `?zip=` arrival (a ZIP row on the Dashboard or Supply) wins over the
+  // saved ZIP, once: it is then dropped from the URL so back never re-applies it
+  const [saved] = useState(() => loadSaved<Saved>(SAVED_KEY));
   const [filters, setFilters] = useState<ListingFilters>({
     status: "active,pending",
-    zip: search.zip,
     min_price: undefined, // undefined = "use band default"; null = cleared
     max_price: undefined,
     sort: "list_date",
+    ...saved.filters,
+    ...(search.zip ? { zip: search.zip } : {}),
   });
+  useEffect(() => {
+    if (search.zip) void navigate({ to: "/listings", search: {}, replace: true });
+  }, [search.zip, navigate]);
 
   // Typing is cheap; refetching is not — every keystroke would re-run the
   // per-row prediction pass server-side. Settle for 250ms first.
-  const [queryText, setQueryText] = useState("");
-  const [q, setQ] = useState("");
+  const [queryText, setQueryText] = useState(saved.queryText ?? "");
+  const [q, setQ] = useState(queryText.trim());
   useEffect(() => {
     const t = setTimeout(() => setQ(queryText.trim()), 250);
     return () => clearTimeout(t);
   }, [queryText]);
+  useEffect(() => save<Saved>(SAVED_KEY, { filters, queryText }), [filters, queryText]);
 
   // A search is a hunt for one specific home, so the *default* band must not
   // silently hide it. An explicitly typed range still applies.
@@ -80,7 +98,7 @@ export default function Listings() {
   const [rowHovered, setRowHovered] = useState<string | null>(null);
   const [mapHovered, setMapHovered] = useState<string | null>(null);
   const hovered = rowHovered ?? mapHovered;
-  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   useEffect(() => {
     if (mapHovered) rowRefs.current.get(mapHovered)?.scrollIntoView({ block: "center" });
   }, [mapHovered]);
@@ -200,7 +218,8 @@ export default function Listings() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-2">
-        <div className="max-h-[70dvh] overflow-auto rounded-lg border border-slate-200 bg-white lg:max-h-none">
+        <div data-scroll-restoration-id="listings"
+             className="max-h-[70dvh] overflow-auto rounded-lg border border-slate-200 bg-white lg:max-h-none">
           {visible.length === 0 && !listings.isLoading && (
             <p className="p-6 text-sm text-slate-400">
               {items.length > 0
@@ -208,36 +227,32 @@ export default function Listings() {
                 : "No listings match — clear the search or filters, or run `hb pipeline listing-scan`."}
             </p>
           )}
-          <table className="w-full text-sm">
-            <tbody>
-              {visible.map((l) => {
-                const soldDelta = deltaVsAsk(l.sold_price, l.original_list_price);
-                return (
-                <tr key={l.id}
-                    ref={(el) => {
-                      if (el) rowRefs.current.set(l.id, el);
-                      else rowRefs.current.delete(l.id);
-                    }}
-                    onMouseEnter={() => setRowHovered(l.id)}
-                    onMouseLeave={() => setRowHovered(null)}
-                    onClick={() => openDetail(l.id)}
-                    className={`cursor-pointer border-b border-slate-100 ${
-                      hovered === l.id
-                        ? "bg-blue-50 shadow-[inset_3px_0_0_0_theme(colors.blue.600)]"
-                        : ""
-                    }`}>
-                  <td className="w-16 py-2 pl-2">
-                    {l.photo_url
-                      ? <img src={l.photo_url} alt="" className="h-10 w-14 rounded object-cover" loading="lazy" />
-                      : <div className="h-10 w-14 rounded bg-slate-100" />}
-                  </td>
-                  <td className="py-2 pl-2">
-                    <div className="font-medium">{l.address}</div>
+          <div className="text-sm">
+            {visible.map((l) => {
+              const soldDelta = deltaVsAsk(l.sold_price, l.original_list_price);
+              return (
+                <div key={l.id}
+                     ref={(el) => {
+                       if (el) rowRefs.current.set(l.id, el);
+                       else rowRefs.current.delete(l.id);
+                     }}
+                     onMouseEnter={() => setRowHovered(l.id)}
+                     onMouseLeave={() => setRowHovered(null)}
+                     className={`relative flex items-center gap-2 border-b border-slate-100 px-2 py-2 ${
+                       hovered === l.id
+                         ? "bg-blue-50 shadow-[inset_3px_0_0_0_theme(colors.blue.600)]"
+                         : ""
+                     }`}>
+                  {l.photo_url
+                    ? <img src={l.photo_url} alt="" className="h-10 w-14 shrink-0 rounded object-cover" loading="lazy" />
+                    : <div className="h-10 w-14 shrink-0 rounded bg-slate-100" />}
+                  <div className="min-w-0 flex-1">
+                    <ListingLink id={l.id} className="font-medium">{l.address}</ListingLink>
                     <div className="text-xs text-slate-500">
                       {l.city} {l.zip} · {l.beds}bd/{l.baths}ba · {l.sqft?.toLocaleString()} sqft
                     </div>
-                  </td>
-                  <td className="py-2 pr-2 text-right sm:whitespace-nowrap">
+                  </div>
+                  <div className="shrink-0 text-right sm:whitespace-nowrap">
                     {l.status === "sold" ? (
                       <>
                         <div className="font-semibold">{money(l.sold_price)}</div>
@@ -255,17 +270,15 @@ export default function Listings() {
                       <div className="font-semibold">{money(l.list_price)}</div>
                     )}
                     <ListingBadges l={l} />
-                  </td>
-                  <td className="w-8 pr-2 text-center"
-                      onClick={(e) => { e.stopPropagation(); trackMut.mutate(l); }}>
-                    <span className={l.tracked ? "text-amber-500" : "text-slate-300"}
-                          title={l.tracked ? "untrack" : "track"}>★</span>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  </div>
+                  <button type="button" onClick={() => trackMut.mutate(l)}
+                          className={`relative z-10 w-6 shrink-0 cursor-pointer text-center ${
+                            l.tracked ? "text-amber-500" : "text-slate-300"}`}
+                          title={l.tracked ? "untrack" : "track"}>★</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
         <div className="h-72 lg:h-auto lg:min-h-[24rem]">
           <LazyMapView listings={items} hoveredId={hovered} onSelect={openDetail}

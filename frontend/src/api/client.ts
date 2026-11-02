@@ -316,7 +316,8 @@ export interface AlertItem {
   message: string;
   listing_id: string | null;
   created_at: string;
-  delivered_at: string | null;
+  /** when the buyer opened it in the inbox; null = unread */
+  read_at: string | null;
 }
 
 export interface Profile {
@@ -460,9 +461,11 @@ export const markWatchlistSeen = () =>
 export const setWatching = (propertyId: string, watching: boolean) =>
   send<{ property_id: string; watching: boolean }>(`/api/watchlist/${propertyId}`, "PATCH", { watching });
 
-export const getAlerts = (limit = 100, undeliveredOnly = false) =>
-  get<AlertItem[]>(`/api/alerts?limit=${limit}${undeliveredOnly ? "&undelivered_only=true" : ""}`);
-export const ackAlert = (id: string) => send(`/api/alerts/${id}/ack`, "POST");
+export const getAlerts = (limit = 100, unreadOnly = false) =>
+  get<AlertItem[]>(`/api/alerts?limit=${limit}${unreadOnly ? "&unread_only=true" : ""}`);
+export const readAlert = (id: string) =>
+  send<{ id: string; read_at: string }>(`/api/alerts/${id}/read`, "POST");
+export const readAllAlerts = () => send<{ marked: number }>("/api/alerts/read-all", "POST");
 export const getAlertRules = () => get<Record<string, Record<string, unknown>>>("/api/alerts/rules");
 export const putAlertRules = (rules: Record<string, Record<string, unknown>>) =>
   send<Record<string, Record<string, unknown>>>("/api/alerts/rules", "PUT", rules);

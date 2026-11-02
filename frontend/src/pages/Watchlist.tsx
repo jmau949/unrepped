@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getWatchlist, markWatchlistSeen, setWatching, type WatchedItem } from "../api/client";
 import { money, pct } from "../lib/format";
 import { statusLabel, statusPillClass } from "../lib/status";
+import ListingLink from "../components/ListingLink";
 
 // Status tabs in reading order; `delisted` reads as "Off market" to a buyer.
 const TABS = [
@@ -165,19 +166,16 @@ export default function Watchlist() {
             const fresh = isNew(w);
             const price = w.status === "sold" ? w.sold_price : w.list_price;
             return (
-              <li key={w.property_id} className="flex gap-3 p-3">
-                <Link to="/listings/$listingId" params={{ listingId: w.id }} className="shrink-0">
+              <li key={w.property_id} className="relative flex gap-3 p-3">
+                <div className="shrink-0">
                   {w.photo_url
                     ? <img src={w.photo_url} alt="" loading="lazy" className="h-16 w-20 rounded object-cover" />
                     : <div className="h-16 w-20 rounded bg-slate-100" />}
-                </Link>
+                </div>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {fresh && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" title="Changed since your last visit" />}
-                    <Link to="/listings/$listingId" params={{ listingId: w.id }}
-                          className="font-medium hover:underline">
-                      {w.address}
-                    </Link>
+                    <ListingLink id={w.id} className="font-medium">{w.address}</ListingLink>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusPillClass(w.status)}`}>
                       {statusLabel(w.status)}
                     </span>
@@ -204,7 +202,7 @@ export default function Watchlist() {
                   </div>
                   <button onClick={() => removeMut.mutate(w.property_id)}
                           disabled={removeMut.isPending && removeMut.variables === w.property_id}
-                          className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                          className="relative z-10 rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                           title="Remove from the Watchlist and its alerts (👁 Watch on the listing puts it back)">
                     ✕ Remove
                   </button>

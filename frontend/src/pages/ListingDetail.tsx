@@ -26,6 +26,7 @@ import {
 import AvmSpreadBar from "../components/AvmSpreadBar";
 import CmaWorkbench from "../components/CmaWorkbench";
 import ContactPanel from "../components/ContactPanel";
+import ExtLink from "../components/ExtLink";
 import HazardChips from "../components/HazardChips";
 import ListingBadges from "../components/ListingBadges";
 import OverbidHistogram from "../components/OverbidHistogram";
@@ -175,8 +176,7 @@ export default function ListingDetail() {
                 {daysToOffer >= 0 ? `${daysToOffer}d until offers` : "offer date passed"}
               </span>
             )}
-            {d.url && <a href={d.url} target="_blank" rel="noreferrer"
-                         className="text-xs text-blue-600 underline">source ↗</a>}
+            {d.url && <ExtLink href={d.url} className="text-xs text-blue-600 underline">source</ExtLink>}
             <BriefButton listingId={d.id} />
           </div>
           {/* the ways in: every upcoming slot with the source's note, not just
@@ -280,7 +280,7 @@ function TrackerControl({
           ))}
         </select>
       </label>
-      <Link to="/tracker" className="text-xs text-amber-800 underline">board ↗</Link>
+      <Link to="/tracker" className="text-xs text-amber-800 underline">board</Link>
       <button
         type="button"
         onClick={onToggle}
@@ -317,7 +317,7 @@ function WatchControl({ watching, pending, onToggle }: {
   return (
     <span className="flex items-center gap-1.5 rounded border border-sky-300 bg-sky-50 px-2 py-0.5">
       <span className="font-medium text-sky-800">👁 Watching</span>
-      <Link to="/watchlist" className="text-xs text-sky-800 underline">list ↗</Link>
+      <Link to="/watchlist" className="text-xs text-sky-800 underline">list</Link>
       <button
         type="button"
         onClick={onToggle}
@@ -357,7 +357,7 @@ function OpenHousesBlock({ listingId, slots, tz }: {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
           Open house{slots.length > 1 ? "s" : ""}
         </h2>
-        <Link to="/open-houses" className="text-xs text-emerald-800 underline">all open houses ↗</Link>
+        <Link to="/open-houses" className="text-xs text-emerald-800 underline">all open houses</Link>
       </div>
       <ul className="mt-1 space-y-1.5">
         {slots.map((oh) => (
@@ -378,8 +378,7 @@ function OpenHousesBlock({ listingId, slots, tz }: {
             )}
             <span className="ml-auto flex shrink-0 items-center gap-2">
               {oh.href && (
-                <a href={oh.href} target="_blank" rel="noreferrer"
-                   className="text-xs text-blue-600 underline">Event link ↗</a>
+                <ExtLink href={oh.href} className="text-xs text-blue-600 underline">Event link</ExtLink>
               )}
               {!oh.cancelled && (
                 <button type="button" onClick={() => toggle.mutate(oh)} disabled={toggle.isPending}

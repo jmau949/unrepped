@@ -179,13 +179,14 @@ hourly for exactly this reason (`ops/windows-tasks.ps1`, docs/05 §2).
   `hazards` job and never pruned.
 - **Live months of supply** (`months_supply_live`) is stored once per trailing
   window, `period` = `3m|6m|9m|12m` — always filter on `period` when reading it.
-- **Migrations**: TEXT UUID PKs, ISO-8601 TEXT timestamps, integer dollars. The schema is six
+- **Migrations**: TEXT UUID PKs, ISO-8601 TEXT timestamps, integer dollars. The schema is seven
   migrations in `backend/hb/db/migrations/versions/` (`0001_initial` — the whole schema plus the
   default buyer profile and alert rules; `0002_open_house_slot_key` — open-house slots unique on
   `(listing_id, start_at)`; `0003_open_house_schedule_position` — `schedule_position`;
   `0004_watchlist` — `properties.watched_at` / `watch_hidden_at`; `0005_profile_income` —
   `buyer_profile.annual_income` / `monthly_debts`; `0006_watch_only_watched_at` — drops
-  `watch_hidden_at`, Watchlist membership is `watched_at` alone); a model change edits `models.py` and adds a
+  `watch_hidden_at`, Watchlist membership is `watched_at` alone; `0007_alert_read_at` —
+  `alerts.read_at`, the inbox's unread state); a model change edits `models.py` and adds a
   hand-reviewed migration on top, and `test_migrations.py::test_migration_matches_models` fails
   on any drift.
 - **Alert channels**: `log` (every OS), `toast` (Windows only), `pushover` (phone push;

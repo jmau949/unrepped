@@ -87,17 +87,37 @@ export function dayKey(iso: string, timeZone?: string): string {
 }
 
 /** A day's heading pieces: { weekday: "Saturday", short: "Sat", date: "Oct 17",
- *  relative: "Today" | "Tomorrow" | null } */
+ *  relative: "Today" | "Tomorrow" | "Yesterday" | null } */
 export function dayParts(iso: string, timeZone?: string) {
   const fmt = (o: Intl.DateTimeFormatOptions) =>
     new Intl.DateTimeFormat("en-US", { timeZone, ...o }).format(new Date(iso));
   const key = dayKey(iso, timeZone);
   const today = dayKey(new Date().toISOString(), timeZone);
   const tomorrow = dayKey(new Date(Date.now() + 86_400_000).toISOString(), timeZone);
+  const yesterday = dayKey(new Date(Date.now() - 86_400_000).toISOString(), timeZone);
   return {
     weekday: fmt({ weekday: "long" }),
     short: fmt({ weekday: "short" }),
     date: fmt({ month: "short", day: "numeric" }),
-    relative: key === today ? "Today" : key === tomorrow ? "Tomorrow" : null,
+    relative: key === today ? "Today" : key === tomorrow ? "Tomorrow"
+      : key === yesterday ? "Yesterday" : null,
   };
+}
+
+export type DayGroup<T> = { key: string; iso: string; items: T[] };
+
+/** Rows under their calendar day in `timeZone`. Days run chronologically
+ *  (`asc`) or newest first (`desc`); inside a day the rows keep the order they
+ *  came in, so a distance or price sort survives the grouping. */
+export function groupByDay<T>(
+  items: T[], iso: (item: T) => string, timeZone: string | undefined, order: "asc" | "desc",
+): DayGroup<T>[] {
+  const out: DayGroup<T>[] = [];
+  const keyed = items.map((item) => ({ item, key: dayKey(iso(item), timeZone) }));
+  keyed.sort((a, b) => (order === "asc" ? 1 : -1) * a.key.localeCompare(b.key));
+  for (const { item, key } of keyed) {
+    if (out.at(-1)?.key !== key) out.push({ key, iso: iso(item), items: [] });
+    out.at(-1)!.items.push(item);
+  }
+  return out;
 }

@@ -111,6 +111,13 @@ export const router = createRouter({
   // shown while a page chunk is in flight — the nav shell stays put, so a page
   // switch never blanks the whole window
   defaultPendingComponent: () => <p className="text-sm text-slate-400">Loading…</p>,
+  // Every in-app link opens in this tab (docs/08), so the browser's back button
+  // is how the buyer returns to a list. The router snapshots each element that
+  // scrolled and puts it back on return — `main`, the shell's scroll container,
+  // and the list boxes on Listings / Recently Sold, whose rows render straight
+  // from the query cache — and starts each new page with `main` at the top.
+  scrollRestoration: true,
+  scrollToTopSelectors: ['[data-scroll-restoration-id="main"]'],
 });
 
 declare module "@tanstack/react-router" {

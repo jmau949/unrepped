@@ -32,7 +32,8 @@ export interface MapBounds {
 interface Props {
   listings: ListingSummary[];
   hoveredId: string | null;
-  onSelect: (id: string) => void;
+  /** pin click; the event lets the page honour ctrl / cmd-click (a new tab) */
+  onSelect: (id: string, e: MouseEvent) => void;
   /** marker hover, so the parent can highlight the matching row */
   onHover?: (id: string | null) => void;
   /** current viewport after every pan/zoom (and once the map first settles) */
@@ -136,7 +137,7 @@ export default function MapView({ listings, hoveredId, onSelect, onHover,
       // a closed sale's headline number is what it sold for, matching the table
       const price = l.status === "sold" ? l.sold_price ?? l.list_price : l.list_price;
       el.textContent = pinLabelRef.current ? pinLabelRef.current(l) : price ? money(price) : "?";
-      el.onclick = () => onSelectRef.current(l.id);
+      el.onclick = (e) => onSelectRef.current(l.id, e);
       el.onmouseenter = () => onHoverRef.current?.(l.id);
       el.onmouseleave = () => onHoverRef.current?.(null);
       const marker = new maplibregl.Marker({ element: el })

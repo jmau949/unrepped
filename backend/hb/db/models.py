@@ -389,6 +389,9 @@ class Alert(Base):
     created_at: Mapped[str] = mapped_column(default=utcnow_iso)
     delivered_at: Mapped[str | None]
     channel: Mapped[str | None]
+    # when the buyer opened it in the inbox; NULL = unread (docs/08 §8).
+    # delivered_at only says a channel reached them.
+    read_at: Mapped[str | None]
 
 
 class RateSnapshot(Base):

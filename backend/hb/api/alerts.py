@@ -12,14 +12,15 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 @router.get("")
 def list_alerts(
-    undelivered_only: bool = False,
+    unread_only: bool = False,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
 ) -> list[dict]:
     with make_session() as session:
-        stmt = select(Alert).order_by(Alert.created_at.desc()).limit(limit).offset(offset)
-        if undelivered_only:
-            stmt = stmt.where(Alert.delivered_at.is_(None))
+        stmt = select(Alert)
+        if unread_only:
+            stmt = stmt.where(Alert.read_at.is_(None))
+        stmt = stmt.order_by(Alert.created_at.desc()).limit(limit).offset(offset)
         rows = session.execute(stmt).scalars().all()
         return [
             {
@@ -29,6 +30,7 @@ def list_alerts(
                 "listing_id": a.listing_id,
                 "payload": a.payload,
                 "created_at": a.created_at,
+                "read_at": a.read_at,
                 "delivered_at": a.delivered_at,
                 "channel": a.channel,
             }
@@ -36,17 +38,38 @@ def list_alerts(
         ]
 
 
-@router.post("/{alert_id}/ack")
-def ack(alert_id: str) -> dict:
+def _mark_read(alert: Alert, now: str) -> None:
+    """Opening an alert in the inbox reads it — and counts as delivery when no
+    channel has run yet, so the hourly `hb alerts send` never toasts or pushes
+    something the buyer has already seen (docs/09 §4)."""
+    if alert.read_at is None:
+        alert.read_at = now
+    if alert.delivered_at is None:
+        alert.delivered_at = now
+        alert.channel = "ui"
+
+
+@router.post("/read-all")
+def read_all() -> dict:
+    with make_session() as session:
+        unread = session.execute(select(Alert).where(Alert.read_at.is_(None))).scalars().all()
+        now = utcnow_iso()
+        for alert in unread:
+            _mark_read(alert, now)
+        session.commit()
+        return {"marked": len(unread)}
+
+
+@router.post("/{alert_id}/read")
+def read(alert_id: str) -> dict:
     with make_session() as session:
         alert = session.get(Alert, alert_id)
         if alert is None:
             raise HTTPException(404, "alert not found")
-        if alert.delivered_at is None:
-            alert.delivered_at = utcnow_iso()
-            alert.channel = (alert.channel + ",ui") if alert.channel else "ui"
+        if alert.read_at is None:
+            _mark_read(alert, utcnow_iso())
             session.commit()
-        return {"id": alert.id, "delivered_at": alert.delivered_at}
+        return {"id": alert.id, "read_at": alert.read_at}
 
 
 @router.get("/rules")

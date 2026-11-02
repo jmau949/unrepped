@@ -15,20 +15,26 @@ import {
   type OpenHouseFilters,
   type Origin,
 } from "../api/client";
+import ExtLink from "../components/ExtLink";
 import LazyMapView from "../components/LazyMapView";
 import ListingBadges from "../components/ListingBadges";
+import ListingLink from "../components/ListingLink";
 import { useCities } from "../lib/config";
-import { clock, dayKey, dayParts, money, openHouseWindow, weekdayClock } from "../lib/format";
+import {
+  clock, dayKey, dayParts, groupByDay, money, openHouseWindow, weekdayClock,
+} from "../lib/format";
+import { useOpenListing } from "../lib/openListing";
+import { loadSaved, save } from "../lib/sessionSaved";
 import MoneyInput from "../components/MoneyInput";
 
 const SELECT = "rounded border border-slate-300 px-2 py-1 text-sm";
 const CHIP = "rounded-full px-3 py-0.5 text-sm";
-const LINK = "text-xs text-blue-600 hover:underline";
+// `relative z-10`: a control inside a row stays above the row's stretched link (ListingLink)
+const LINK = "relative z-10 text-xs text-blue-600 hover:underline";
 
 type Range = "weekend" | "today" | "week";
-type DayGroup = { key: string; iso: string; items: OpenHouse[] };
 
-/** Where the buyer was, kept per browser tab: a detail page opens in a new
+/** Where the buyer was, kept per browser tab: the detail page opens in this
  *  tab, and coming back (or the phone reloading a discarded tab) must land on
  *  the same filters, scroll position and last-opened home. */
 type Saved = {
@@ -40,22 +46,6 @@ type Saved = {
   scrollTop?: number;
 };
 const SAVED_KEY = "hb.open-houses.v1";
-
-function loadSaved(): Saved {
-  try {
-    return JSON.parse(sessionStorage.getItem(SAVED_KEY) ?? "{}") as Saved;
-  } catch {
-    return {};
-  }
-}
-
-function save(patch: Saved) {
-  try {
-    sessionStorage.setItem(SAVED_KEY, JSON.stringify({ ...loadSaved(), ...patch }));
-  } catch {
-    // storage blocked (private window): the page just starts fresh next time
-  }
-}
 
 /** undefined from/to = the server default: now through the end of the coming Sunday */
 function rangeParams(range: Range): Pick<OpenHouseFilters, "from" | "to"> {
@@ -75,20 +65,6 @@ function directionsUrl(origin: Origin | null, l: ListingSummary): string {
   return `https://www.google.com/maps/dir/?${params}`;
 }
 
-/** group in list order; days themselves always run chronologically, so a
- *  distance/price sort keeps its order inside each day */
-function groupByDay(items: OpenHouse[], tz: string | undefined): DayGroup[] {
-  const out: DayGroup[] = [];
-  const sorted = [...items].sort((a, b) =>
-    dayKey(a.start_at, tz).localeCompare(dayKey(b.start_at, tz)));
-  for (const oh of sorted) {
-    const key = dayKey(oh.start_at, tz);
-    if (out.at(-1)?.key !== key) out.push({ key, iso: oh.start_at, items: [] });
-    out.at(-1)!.items.push(oh);
-  }
-  return out;
-}
-
 /** add/remove a slot on the schedule; both the list and the schedule refetch */
 function useScheduleToggle() {
   const qc = useQueryClient();
@@ -104,7 +80,8 @@ function useScheduleToggle() {
 
 export default function OpenHouses() {
   const cities = useCities();
-  const [saved] = useState(loadSaved);
+  const open = useOpenListing();
+  const [saved] = useState(() => loadSaved<Saved>(SAVED_KEY));
   const [range, setRange] = useState<Range>(saved.range ?? "weekend");
   const summary = useQuery({ queryKey: ["market-summary"], queryFn: getMarketSummary });
   const band = summary.data?.target_band;
@@ -116,7 +93,7 @@ export default function OpenHouses() {
   // but the list doesn't refetch on return, so flip them locally too
   const [opened, setOpened] = useState<Set<string>>(() => new Set(saved.opened));
   const [lastOpened, setLastOpened] = useState<string | null>(saved.lastOpened ?? null);
-  useEffect(() => save({ range, filters, hideViewed }), [range, filters, hideViewed]);
+  useEffect(() => save<Saved>(SAVED_KEY, { range, filters, hideViewed }), [range, filters, hideViewed]);
   const isViewed = (l: ListingSummary) => l.viewed_at !== null || opened.has(l.id);
   // the "today"/"week" windows are anchored on the moment the range is picked,
   // so the query key stays stable instead of changing every render
@@ -131,7 +108,7 @@ export default function OpenHouses() {
     queryKey: ["open-houses", effective],
     queryFn: () => getOpenHouses(effective),
     enabled: !summary.isLoading,
-    // coming back from a detail tab must not re-sort the list under the buyer
+    // coming back from the detail page must not re-sort the list under the buyer
     refetchOnWindowFocus: false,
   });
   const all = list.data?.items ?? [];
@@ -143,7 +120,7 @@ export default function OpenHouses() {
     all.filter((oh) => !isViewed(oh.listing)).map((oh) => oh.listing_id)).size;
   const origin = list.data?.origin ?? null;
   const tz = list.data?.timezone;
-  const groups = useMemo(() => groupByDay(items, tz), [items, tz]);
+  const groups = useMemo(() => groupByDay(items, (oh) => oh.start_at, tz, "asc"), [items, tz]);
   const toggle = useScheduleToggle();
 
   // the schedule panel's query (shared cache): scheduled homes stay on the map
@@ -207,27 +184,32 @@ export default function OpenHouses() {
     scroller.current.scrollTop = scrollTop.current;
   }, [summary.isLoading, list.isSuccess, list.data]);
 
-  // leaving for a detail tab saves the position; returning re-shows the home
-  // just opened in case the list moved meanwhile
+  // a hidden tab (the phone switching apps) saves the position; coming back
+  // re-shows the home just opened in case the list moved meanwhile
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") save({ scrollTop: scrollTop.current });
+      if (document.visibilityState === "hidden") save<Saved>(SAVED_KEY, { scrollTop: scrollTop.current });
       else if (lastOpened) scrollToHome(lastOpened);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      save({ scrollTop: scrollTop.current });
+      save<Saved>(SAVED_KEY, { scrollTop: scrollTop.current });
     };
   });
 
-  const openDetail = (id: string) => {
+  // the list's own memory of an open — the ✓, the amber bar — and the scroll
+  // position, saved before the page changes
+  const noteOpened = (id: string) => {
     const next = new Set(opened).add(id);
     setOpened(next);
     setLastOpened(id);
-    save({ opened: [...next], lastOpened: id, scrollTop: scrollTop.current });
+    save<Saved>(SAVED_KEY, { opened: [...next], lastOpened: id, scrollTop: scrollTop.current });
+  };
+  const openDetail = (id: string, e?: { ctrlKey: boolean; metaKey: boolean }) => {
+    noteOpened(id);
     scrollToHome(id);  // a map-pin click brings its row into the list
-    window.open(`/listings/${id}`, "_blank", "noopener,noreferrer");
+    open(id, e);
   };
   const lastOpenedListing = lastOpened
     ? all.find((oh) => oh.listing_id === lastOpened)?.listing : undefined;
@@ -338,7 +320,7 @@ export default function OpenHouses() {
                                   if (el) rowRefs.current.set(oh.id, el);
                                   else rowRefs.current.delete(oh.id);
                                 }}
-                                onHover={setRowHovered} onOpen={openDetail}
+                                onHover={setRowHovered} onOpened={noteOpened}
                                 onToggle={() => toggle.mutate(oh)}
                                 toggling={toggle.isPending && toggle.variables?.id === oh.id} />
                 ))}
@@ -347,7 +329,7 @@ export default function OpenHouses() {
           </div>
         </div>
         <div className="flex flex-col gap-4 lg:min-h-[24rem]">
-          <SchedulePanel onOpen={openDetail} onHover={setSchedHovered} hoveredId={hovered} />
+          <SchedulePanel onOpened={noteOpened} onHover={setSchedHovered} hoveredId={hovered} />
           <div className="h-72 lg:h-auto lg:min-h-[20rem] lg:flex-1">
             <LazyMapView listings={mapListings} hoveredId={hovered} onSelect={openDetail}
                          onHover={setMapHovered} home={home}
@@ -435,7 +417,7 @@ function OriginBar({ origin }: { origin: Origin | null }) {
   );
 }
 
-function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef, onHover, onOpen,
+function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef, onHover, onOpened,
                         onToggle, toggling }: {
   oh: OpenHouse;
   origin: Origin | null;
@@ -447,24 +429,24 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
   lastOpened: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
   onHover: (listingId: string | null) => void;
-  onOpen: (listingId: string) => void;
+  /** the home is being opened from here — the list remembers it (✓, amber bar) */
+  onOpened: (listingId: string) => void;
   onToggle: () => void;
   toggling: boolean;
 }) {
   const l = oh.listing;
   const started = new Date(oh.start_at) <= new Date();
+  const open = useOpenListing();
   const log = useMutation({
     mutationFn: () => createTour({ listing_id: l.id, kind: "open_house",
                                    toured_on: dayKey(oh.start_at, tz) }),
-    onSuccess: () => onOpen(l.id),  // the tour log lives on the detail page
+    onSuccess: () => { onOpened(l.id); open(l.id); },  // the tour log lives on the detail page
   });
-  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
 
   return (
     <div ref={rowRef}
          onMouseEnter={() => onHover(l.id)} onMouseLeave={() => onHover(null)}
-         onClick={() => onOpen(l.id)}
-         className={`flex cursor-pointer gap-3 border-b border-slate-100 px-3 py-2 text-sm ${
+         className={`relative flex gap-3 border-b border-slate-100 px-3 py-2 text-sm ${
            highlighted ? "bg-blue-50 shadow-[inset_3px_0_0_0_theme(colors.blue.600)]"
              : lastOpened ? "bg-amber-50 shadow-[inset_4px_0_0_0_theme(colors.amber.500)]"
              : oh.scheduled ? "bg-emerald-50/60 shadow-[inset_3px_0_0_0_theme(colors.emerald.500)]" : ""}`}>
@@ -484,7 +466,7 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
       <div className="min-w-0 flex-1">
         <div className={`flex items-center gap-1.5 font-medium ${viewed && !lastOpened ? "text-slate-500" : ""}`}>
           {!viewed && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" title="Not viewed yet" />}
-          <span className="truncate">{l.address}</span>
+          <ListingLink id={l.id} onOpen={onOpened} className="truncate">{l.address}</ListingLink>
           {lastOpened ? (
             <span className="shrink-0 rounded-full bg-amber-400 px-2 py-0.5 text-xs font-semibold text-slate-900">
               last opened
@@ -504,18 +486,10 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
           <div className="truncate text-xs text-slate-400" title={oh.description}>{oh.description}</div>
         )}
         <div className="mt-1 flex flex-wrap gap-3">
-          <a href={directionsUrl(origin, l)} target="_blank" rel="noreferrer"
-             onClick={(e) => e.stopPropagation()} className={LINK}>
-            Directions ↗
-          </a>
-          {oh.href && (
-            <a href={oh.href} target="_blank" rel="noreferrer"
-               onClick={(e) => e.stopPropagation()} className={LINK}>
-              Event link ↗
-            </a>
-          )}
+          <ExtLink href={directionsUrl(origin, l)} className={LINK}>Directions</ExtLink>
+          {oh.href && <ExtLink href={oh.href} className={LINK}>Event link</ExtLink>}
           {started && (
-            <button onClick={stop(() => log.mutate())} className={LINK} disabled={log.isPending}
+            <button onClick={() => log.mutate()} className={LINK} disabled={log.isPending}
                     title="Start a tour-log entry for this visit">
               {log.isPending ? "Logging…" : "Log visit"}
             </button>
@@ -526,8 +500,8 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
         <div className="font-semibold">{money(l.list_price)}</div>
         <ListingBadges l={l} hideOpenHouse />
         <div className="mt-1">
-          <button onClick={stop(onToggle)} disabled={toggling}
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium disabled:opacity-50 ${oh.scheduled
+          <button onClick={onToggle} disabled={toggling}
+                  className={`relative z-10 rounded-full px-2.5 py-0.5 text-xs font-medium disabled:opacity-50 ${oh.scheduled
                     ? "bg-emerald-600 text-white hover:bg-emerald-700"
                     : "border border-slate-300 text-slate-600 hover:bg-slate-100"}`}
                   title={oh.scheduled ? "take off your schedule" : "you plan to go — add it to your schedule"}>
@@ -541,8 +515,9 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
 
 /** The open houses the buyer plans to go to, saved server-side, one tab per
  *  day; each day's stops are a driving route in the buyer's own order. */
-function SchedulePanel({ onOpen, onHover, hoveredId }: {
-  onOpen: (listingId: string) => void;
+function SchedulePanel({ onOpened, onHover, hoveredId }: {
+  /** the home is being opened from here — the list remembers it (✓, amber bar) */
+  onOpened: (listingId: string) => void;
   /** hovering a stop lights up its map pin and list rows */
   onHover: (listingId: string | null) => void;
   hoveredId: string | null;
@@ -551,7 +526,7 @@ function SchedulePanel({ onOpen, onHover, hoveredId }: {
   const items = sched.data?.items ?? [];
   const tz = sched.data?.timezone;
   const origin = sched.data?.origin ?? null;
-  const days = useMemo(() => groupByDay(items, tz), [items, tz]);
+  const days = useMemo(() => groupByDay(items, (oh) => oh.start_at, tz, "asc"), [items, tz]);
   const [picked, setPicked] = useState<string | null>(null);
   const day = days.find((d) => d.key === picked) ?? days[0];
 
@@ -595,22 +570,23 @@ function SchedulePanel({ onOpen, onHover, hoveredId }: {
         </div>
       )}
       {day && <DaySchedule key={day.key} items={day.items} origin={origin} tz={tz}
-                           onOpen={onOpen} onHover={onHover} hoveredId={hoveredId} />}
+                           onOpened={onOpened} onHover={onHover} hoveredId={hoveredId} />}
     </section>
   );
 }
 
 type Schedule = Awaited<ReturnType<typeof getSchedule>>;
-const ICON_BTN = "px-1 text-slate-300 hover:text-slate-700 disabled:invisible";
+const ICON_BTN = "relative z-10 px-1 text-slate-300 hover:text-slate-700 disabled:invisible";
 
 /** One day of the schedule in the buyer's own order: drag a stop (or use
  *  ▲ ▼) to rearrange it, Auto-order for the planner's suggestion. Every stop
  *  stays on the list; the drive into each one is shown, no visit times. */
-function DaySchedule({ items, origin, tz, onOpen, onHover, hoveredId }: {
+function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
   items: OpenHouse[];
   origin: Origin | null;
   tz: string | undefined;
-  onOpen: (listingId: string) => void;
+  /** the home is being opened from here — the list remembers it (✓, amber bar) */
+  onOpened: (listingId: string) => void;
   onHover: (listingId: string | null) => void;
   hoveredId: string | null;
 }) {
@@ -669,7 +645,7 @@ function DaySchedule({ items, origin, tz, onOpen, onHover, hoveredId }: {
 
   const removeBtn = (id: string) => (
     <button onClick={() => remove(id)} disabled={toggle.isPending}
-            className="text-slate-300 hover:text-slate-600" aria-label="remove from schedule"
+            className="relative z-10 text-slate-300 hover:text-slate-600" aria-label="remove from schedule"
             title="remove from schedule">✕</button>
   );
   const hoverable = (oh: OpenHouse) => ({
@@ -715,17 +691,16 @@ function DaySchedule({ items, origin, tz, onOpen, onHover, hoveredId }: {
                 onDragStart={(e) => { e.dataTransfer.setData("text/plain", oh.id); setDragging(oh.id); }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); if (dragging) move(dragging, n); setDragging(null); }}
-                className={`-mx-1 flex items-start gap-2 rounded px-1 py-0.5 ${
+                className={`relative -mx-1 flex items-start gap-2 rounded px-1 py-0.5 ${
                   dragging === oh.id ? "opacity-40" : hoveredId === oh.listing_id ? "bg-blue-50" : ""}`}>
-              <span className="cursor-grab select-none pt-0.5 text-slate-300" title="drag to reorder">⋮⋮</span>
+              <span className="relative z-10 cursor-grab select-none pt-0.5 text-slate-300" title="drag to reorder">⋮⋮</span>
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs text-white">
                 {n + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <button onClick={() => onOpen(oh.listing_id)}
-                        className="truncate text-left font-medium hover:underline">
+                <ListingLink id={oh.listing_id} onOpen={onOpened} className="block truncate font-medium">
                   {oh.listing.address}, {oh.listing.city}
-                </button>
+                </ListingLink>
                 <div className="text-xs text-slate-500">
                   open {openHouseWindow(oh.start_at, oh.end_at, tz)}
                   {leg?.drive_min != null && ` · ${Math.round(leg.drive_min)} min drive`}
@@ -758,10 +733,9 @@ function DaySchedule({ items, origin, tz, onOpen, onHover, hoveredId }: {
       )}
       {p?.maps_url && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <a href={p.maps_url} target="_blank" rel="noreferrer"
-             className="inline-block rounded bg-slate-900 px-3 py-1 text-sm text-white">
-            Open route in Google Maps ↗
-          </a>
+          <ExtLink href={p.maps_url} className="inline-block rounded bg-slate-900 px-3 py-1 text-sm text-white">
+            Open route in Google Maps
+          </ExtLink>
           {live.length > p.maps_stops && (
             <span className="text-xs text-amber-700">
               Google Maps takes the first {p.maps_stops} stops; open the rest from stop {p.maps_stops + 1}.

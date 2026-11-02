@@ -177,7 +177,7 @@ derived from `checklist` by `hb.tour_spec.evaluate()` — flagged items map to t
 the roll-up; it is recomputed on read so a spec change reprices old tours (13 §10).
 
 ### alerts
-`id, type (price_cut|relist|back_on_market|new_comp_sold|offer_date_soon|new_listing_match|watched_status|scan_failure|deal_deadline_soon|deal_deadline_overdue — the ten the code creates; `rate_move` has a seeded rule toggle and nothing writes it), listing_id FK NULL, tracked_listing_id FK NULL, payload TEXT JSON, dedup_key TEXT NOT NULL, created_at, delivered_at TEXT NULL, channel TEXT NULL`
+`id, type (price_cut|relist|back_on_market|new_comp_sold|offer_date_soon|new_listing_match|watched_status|scan_failure|deal_deadline_soon|deal_deadline_overdue — the ten the code creates; `rate_move` has a seeded rule toggle and nothing writes it), listing_id FK NULL, tracked_listing_id FK NULL, payload TEXT JSON, dedup_key TEXT NOT NULL, created_at, delivered_at TEXT NULL, channel TEXT NULL, read_at TEXT NULL (when the buyer opened it in the inbox; NULL = unread, 08 §8)`
 **Unique key**: `(dedup_key)` — construction rules in `09-alerts-spec.md` §3.
 
 ### rate_snapshots
@@ -248,11 +248,12 @@ costs on read, so a spec correction reprices an open deal.
 **Unique key**: `(school_id, source)` — mirrors the avm_snapshots multi-source pattern; `schools.rating/pct_met` stay as the CAASPP fast-path columns. **Index**: `ix_school_rating_snapshots_school(school_id)`.
 
 ## Alembic conventions
-- The schema is six migrations in `migrations/versions/`, applied in order by `hb serve`, `hb db upgrade` and every `hb pipeline` / `hb alerts send` / `hb backtest` command (`cli._ready_db`); a fresh clone needs nothing else:
+- The schema is seven migrations in `migrations/versions/`, applied in order by `hb serve`, `hb db upgrade` and every `hb pipeline` / `hb alerts send` / `hb backtest` command (`cli._ready_db`); a fresh clone needs nothing else:
   - `0001_initial` — the whole schema, plus the `buyer_profile` default row and the `alert_rules` settings row (existence-guarded, so re-running is a no-op);
   - `0002_open_house_slot_key` — `open_houses` unique on `(listing_id, start_at)` across sources (duplicate rows already stored for one slot are collapsed first, keeping the scheduled one, else the oldest);
   - `0003_open_house_schedule_position` — `open_houses.schedule_position` (already-scheduled slots numbered soonest first);
   - `0004_watchlist` — `properties.watched_at` / `watch_hidden_at`;
   - `0005_profile_income` — `buyer_profile.annual_income` / `monthly_debts` (NOT NULL, server default 0);
-  - `0006_watch_only_watched_at` — Watchlist membership becomes `watched_at` alone: toured, un-hidden homes get it stamped, hidden homes have it cleared, and `watch_hidden_at` is dropped.
+  - `0006_watch_only_watched_at` — Watchlist membership becomes `watched_at` alone: toured, un-hidden homes get it stamped, hidden homes have it cleared, and `watch_hidden_at` is dropped;
+  - `0007_alert_read_at` — `alerts.read_at`; alerts already delivered when it lands start read (`read_at = delivered_at`), since nothing can say whether they were opened.
 - A model change edits `models.py` and adds a hand-reviewed migration on top (autogenerate, then review batch-mode artefacts, JSON types and constraint names): `tests/test_migrations.py::test_migration_matches_models` runs `alembic.autogenerate.compare_metadata` against a DB built by the migrations and fails on any drift.

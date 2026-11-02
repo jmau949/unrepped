@@ -330,7 +330,7 @@ function TourSummary({ listingId }: { listingId: string }) {
         params={{ listingId }}
         className="text-xs text-blue-600 underline"
       >
-        open tour log ↗
+        open tour log
       </Link>
     </div>
   );

@@ -8,6 +8,7 @@ import {
   type ContactPhone,
   type ListingDetail,
 } from "../api/client";
+import ExtLink from "./ExtLink";
 import { copyText } from "../lib/clipboard";
 import { useConfig } from "../lib/config";
 import { phone as fmtPhone } from "../lib/format";
@@ -108,7 +109,7 @@ export default function ContactPanel({
           {assessors.map((l, i) => (
             <span key={l.href}>
               {i > 0 && " · "}
-              <a href={l.href} target="_blank" rel="noreferrer" className={LINK}>{l.label} ↗</a>
+              <ExtLink href={l.href} className={LINK}>{l.label}</ExtLink>
             </span>
           ))}
           {" "}— search by address; if the portal withholds the owner's name, the Assessor's office
