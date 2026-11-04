@@ -50,6 +50,8 @@ def format_alert(session: Session, alert: Alert) -> str:
                 f"A missed contingency date can cost the deposit.")
     if alert.type == "watched_status":
         return _watched_status(p, addr)
+    if alert.type == "new_comp_sold":
+        return _new_comp_sold(p, addr)
     if alert.type == "scan_failure":
         return "The last 2 listing scans failed — check the Data Log."
     return f"{alert.type} — {addr}"
@@ -70,6 +72,19 @@ def _watched_status(p: dict, addr: str) -> str:
     if event == "pending":
         return f"Watched home went pending — {addr}, asking ${p.get('list_price') or 0:,}."
     return f"Watched home taken off the market — {addr}."
+
+
+def _new_comp_sold(p: dict, addr: str) -> str:
+    """`addr` is the tracked home; the comp lives in the payload. RentCast comps
+    carry no DOM (0), so the figure is shown only when the scan supplied one."""
+    detail = [f"${p.get('price') or 0:,}"]
+    if p.get("ppsf"):
+        detail.append(f"${p['ppsf']:,}/sqft")
+    if p.get("distance_mi") is not None:
+        detail.append(f"{p['distance_mi']} mi away")
+    if p.get("dom"):
+        detail.append(f"{p['dom']} DOM")
+    return f"Comp sold near {addr} — {p.get('comp_address')}: {', '.join(detail)}."
 
 
 def _url(alert: Alert) -> str:

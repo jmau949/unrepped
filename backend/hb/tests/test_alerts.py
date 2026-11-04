@@ -100,6 +100,9 @@ def test_new_comp_sold_within_radius_fires_once(session):
     assert alert.payload["price"] == 2_310_000
     assert alert.payload["ppsf"] == round(2_310_000 / 1600)
     assert alert.payload["distance_mi"] <= 0.5
+    text = channels.format_alert(session, alert)
+    assert text.startswith("Comp sold near 1 Tracked Way, Sunnyvale — ")
+    assert "$2,310,000" in text and "/sqft" in text and "mi away" in text and "8 DOM" in text
 
     # D11: re-evaluation over the same sales emits nothing new
     assert rules.evaluate(session, [], OBS, new_sale_ids={near.id, far.id}) == 0
@@ -269,6 +272,17 @@ def test_formatter_price_cut(session):
     alert = session.execute(select(Alert)).scalar_one()
     text = channels.format_alert(session, alert)
     assert "$100,000" in text and "Sunnyvale" in text and "$2,100,000" in text
+
+
+def test_formatter_new_comp_sold_omits_missing_ppsf_and_dom(session):
+    lst = _listing(session)
+    alert = Alert(type="new_comp_sold", listing_id=lst.id, dedup_key="new_comp_sold:x",
+                  payload={"comp_address": "9 Comp Ct", "price": 2_000_000, "ppsf": None,
+                           "distance_mi": 0.31, "dom": 0})
+    session.add(alert)
+    session.flush()
+    text = channels.format_alert(session, alert)
+    assert text == "Comp sold near 2500000 Test St, Sunnyvale — 9 Comp Ct: $2,000,000, 0.31 mi away."
 
 
 def _scan_run(session, status, started_at):

@@ -50,5 +50,5 @@ waived tasks, and tasks belonging to a waived contingency, never alert.
 ## 5. Message rendering
 A formatter per type in `channels.py` (`format_alert`), plain-language, with a generic fallback `"{type} — {address}"` for any type without one, e.g.
 `price_cut`: "↓ $50,000 (2.3%) — 123 Main St, Sunnyvale now $2,100,000. Cut #2."
-`new_comp_sold`: has no formatter and renders as the fallback "new_comp_sold — 456 Oak Ave, Sunnyvale" (the tracked home's address; the comp address, price, $/sqft, distance and DOM stay in `payload`, which `GET /api/alerts` returns).
+`new_comp_sold`: "Comp sold near 456 Oak Ave, Sunnyvale — 789 Elm St: $2,310,000, $1,444/sqft, 0.14 mi away, 8 DOM." (the address after "near" is the tracked home; $/sqft is omitted when the comp has no `sqft`, and DOM when the sale carries none, as RentCast comps do).
 `watched_status`: "Watched home sold — 123 Main St, Sunnyvale for $1,620,000 (+4.0% vs original ask). $40,000 over your max bid." / "Watched home went pending — 123 Main St, Sunnyvale, asking $1,450,000." / "Watched home taken off the market — 123 Main St, Sunnyvale."
