@@ -84,9 +84,9 @@ unrepped/
 │       ├── watchlist.py          # Watchlist membership + what happened to each watched home (08 §5b)
 │       ├── schools_match.py      # boundary-aware school assignment: district point-in-polygon over a process-cached STRtree (05 §12)
 │       ├── backtest.py           # `hb backtest`: golden backtest, CMA + overbid replayed as of the day before listing (10 §4)
-│       ├── open_houses/          # open-house sources, geocoder and day planner (05 §4c)
+│       ├── open_houses/          # open-house sources, geocoder and day routes (05 §4c)
 │       │   ├── geocode.py        # address → coordinates for the distance origin: the Census geocoder behind the `Geocoder` Protocol
-│       │   ├── route.py          # day routes: drive legs, suggested order, multi-stop Google Maps URL (pure: no DB, no network)
+│       │   ├── route.py          # day routes: drive legs, nearest-next order, multi-stop Google Maps URL (pure: no DB, no network)
 │       │   └── sources/          # base.py (the source contract), realtor.py (HomeHarvest), redfin.py (stingray GIS via curl_cffi)
 │       ├── db/
 │       │   ├── engine.py         # engine/session factory; PRAGMA journal_mode=WAL

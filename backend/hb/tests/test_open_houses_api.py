@@ -153,19 +153,35 @@ def test_route_drives_the_given_order_and_links_maps(client, seeded):
     assert body["maps_stops"] == 2
 
 
-def test_route_optimize_suggests_an_order_and_keeps_every_stop(client, seeded, session):
-    near, mid = seeded["near"][1], seeded["mid"][1]
-    gone = NOW - timedelta(hours=5)  # already closed: can't fit, still kept (last)
-    lid = seeded["far"][0]
-    closed = OpenHouse(listing_id=lid, source="realtor", start_at=_iso(gone),
-                       end_at=_iso(gone + timedelta(hours=1)), methods=["in_person"])
-    session.add(closed)
+def test_route_nearest_from_chains_stops_and_keeps_every_one(client, seeded, session):
+    """`nearest_from` orders the stops nearest-next from that point (05 §4c) —
+    here from up north, so the day runs far → mid → near — a home with no map
+    location goes last, and the drive legs still start from home."""
+    near, mid, far = (seeded[k][1] for k in ("near", "mid", "far"))
+    prop = Property(address_norm="9 LOST LN", zip="94040", city="Mountain View", state="CA")
+    session.add(prop)
+    session.flush()
+    lst = Listing(property_id=prop.id, source="realtor", source_listing_id="lost",
+                  status="active", list_price=1_000_000)
+    session.add(lst)
+    session.flush()
+    start = NOW + timedelta(hours=2)
+    nowhere = OpenHouse(listing_id=lst.id, source="realtor", start_at=_iso(start),
+                        end_at=_iso(start + timedelta(hours=2)), methods=["in_person"])
+    session.add(nowhere)
     session.commit()
 
     body = client.post("/api/open-houses/route", json={
-        "open_house_ids": [closed.id, mid, near], "optimize": True,
-        "start_at": _iso(NOW)}).json()
-    assert [s["open_house_id"] for s in body["stops"]] == [near, mid, closed.id]
+        "open_house_ids": [near, nowhere.id, mid, far],
+        "nearest_from": {"lat": 37.60, "lon": -122.30}}).json()
+    assert [s["open_house_id"] for s in body["stops"]] == [far, mid, near, nowhere.id]
+    assert body["stops"][0]["drive_miles"] > 10  # the leg into "far" is from home, not from up north
+    assert body["stops"][3]["drive_min"] is None
+    assert body["maps_stops"] == 4
+
+    bad = client.post("/api/open-houses/route", json={
+        "open_house_ids": [near], "nearest_from": {"lat": 91, "lon": 0}})
+    assert bad.status_code == 422
 
 
 def test_route_validation(client, seeded, session):

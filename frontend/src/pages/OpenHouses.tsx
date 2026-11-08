@@ -27,6 +27,7 @@ import { useCities } from "../lib/config";
 import {
   clock, dayKey, dayParts, groupByDay, money, openHouseWindow, weekdayClock,
 } from "../lib/format";
+import { currentPosition } from "../lib/geolocate";
 import { useOpenListing } from "../lib/openListing";
 import { loadSaved, save } from "../lib/sessionSaved";
 import MoneyInput from "../components/MoneyInput";
@@ -200,11 +201,24 @@ export default function OpenHouses() {
   const scrollTop = useRef(saved.scrollTop ?? 0);
   const restored = useRef(false);
 
-  /** bring a home's first row into view without moving a row already on screen */
+  /** bring a home's first row into view: a row already on screen (clear of the
+   *  sticky day band) stays put, one off screen is centred in the list */
   const scrollToHome = (listingId: string) => {
     const first = firstSlot.get(listingId);
-    if (first) rowRefs.current.get(first.id)?.scrollIntoView({ block: "nearest" });
+    const el = first && rowRefs.current.get(first.id);
+    const box = scroller.current;
+    if (!el || !box) return;
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    const band = el.closest("section")?.firstElementChild?.getBoundingClientRect().height ?? 0;
+    if (r.top >= b.top + band && r.bottom <= b.bottom) return;
+    el.scrollIntoView({ block: "center" });
   };
+  // a map hover brings the home's row into view; a row or schedule hover never
+  // scrolls, or moving down the list would fight its own scroll position
+  useEffect(() => {
+    if (mapHovered) scrollToHome(mapHovered);
+  }, [mapHovered]);
 
   // put the list back where it was once the real rows exist (reload / discarded
   // tab). Not before the band has loaded: until then a cached result for the
@@ -726,8 +740,9 @@ function PastSchedule({ onOpened, onHover, hoveredId }: PanelProps) {
 const ICON_BTN = "relative z-10 px-1 text-slate-300 hover:text-slate-700 disabled:invisible";
 
 /** One day of the schedule in the buyer's own order: drag a stop (or use
- *  ▲ ▼) to rearrange it, Auto-order for the planner's suggestion. Every stop
- *  stays on the list; the drive into each one is shown, no visit times. */
+ *  ▲ ▼) to rearrange it, Order by distance for a nearest-next chain from where
+ *  the buyer is. Every stop stays on the list; the drive into each one is
+ *  shown, no visit times. */
 function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
   items: OpenHouse[];
   origin: Origin | null;
@@ -743,7 +758,6 @@ function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
   const live = items.filter((i) => !i.cancelled && i.listing.status === "active");
   const off = items.filter((i) => !live.includes(i));
   const ids = live.map((i) => i.id);
-  const [dwell, setDwell] = useState(20);
   const [dragging, setDragging] = useState<string | null>(null);
 
   // saved server-side; the cached schedule is reordered at once so the list
@@ -773,9 +787,20 @@ function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
     order.splice(Math.max(0, Math.min(to, order.length)), 0, id);
     if (order.join() !== ids.join()) reorder.mutate(order);
   };
-  const autoOrder = useMutation({
-    mutationFn: () => planRoute({ open_house_ids: ids, optimize: true, dwell_min: dwell }),
-    onSuccess: (plan) => reorder.mutate(plan.stops.map((s) => s.open_house_id)),
+  // nearest-next from where the device is; from home when the browser has no
+  // location to give (refused, no fix, or a plain-HTTP page), and the note says so
+  const [orderedFromHome, setOrderedFromHome] = useState(false);
+  const orderByDistance = useMutation({
+    mutationFn: async () => {
+      const here = await currentPosition();
+      const from = here ?? { lat: origin!.lat, lon: origin!.lon };
+      const plan = await planRoute({ open_house_ids: ids, nearest_from: from });
+      return { plan, fromHome: here === null };
+    },
+    onSuccess: ({ plan, fromHome }) => {
+      setOrderedFromHome(fromHome);
+      reorder.mutate(plan.stops.map((s) => s.open_house_id));
+    },
   });
 
   const route = useQuery({
@@ -810,20 +835,19 @@ function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
           {p && <span className="text-slate-500">~{Math.round(p.total_drive_min)} min driving</span>}
           {route.isError && <span className="text-red-600">Couldn't get drive times — try again.</span>}
           {live.length > 1 && origin && (
-            <span className="ml-auto flex items-center gap-1 text-xs text-slate-500">
-              <button onClick={() => autoOrder.mutate()}
-                      disabled={autoOrder.isPending || reorder.isPending}
+            <span className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+              {orderByDistance.isError && <span className="text-red-600">Couldn't order — try again.</span>}
+              {orderedFromHome && !orderByDistance.isPending && !orderByDistance.isError && (
+                <span title="Your browser gave no location, so the order starts from home.">
+                  ordered from home — location unavailable
+                </span>
+              )}
+              <button onClick={() => orderByDistance.mutate()}
+                      disabled={orderByDistance.isPending || reorder.isPending}
                       className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                      title="Reorder to fit the most open-house windows with the least driving">
-                {autoOrder.isPending ? "Ordering…" : "Auto-order"}
+                      title="Start at the stop nearest you, then go to the nearest remaining stop from each one (from home when your location isn't available)">
+                {orderByDistance.isPending ? "Ordering…" : "Order by distance"}
               </button>
-              for
-              <select value={dwell} onChange={(e) => setDwell(Number(e.target.value))}
-                      className="rounded border border-slate-300 px-1 py-0.5 text-xs"
-                      aria-label="Minutes at each stop">
-                {[15, 20, 30, 45].map((m) => <option key={m} value={m}>{m} min</option>)}
-              </select>
-              stays
             </span>
           )}
         </div>

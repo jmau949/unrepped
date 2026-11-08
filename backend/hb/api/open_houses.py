@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -47,7 +47,7 @@ from hb.open_houses.route import (
     Stop,
     drive_legs,
     maps_url,
-    suggested_order,
+    nearest_order,
 )
 
 log = logging.getLogger(__name__)
@@ -61,11 +61,16 @@ class OriginIn(BaseModel):
     address: str
 
 
+class LatLon(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
 class RouteIn(BaseModel):
     open_house_ids: list[str]  # visiting order
-    optimize: bool = False  # True = answer in the planner's suggested order instead
-    start_at: str | None = None  # optimize only: ISO-8601; default = as the first window opens
-    dwell_min: int = 20  # optimize only: minutes at each stop
+    # set = answer in nearest-next order from this point (the device's location,
+    # or home) instead of the order given; the drive legs still start from home
+    nearest_from: LatLon | None = None
 
 
 class OrderIn(BaseModel):
@@ -356,7 +361,8 @@ def put_origin(body: OriginIn) -> dict:
 @router.post("/route")
 def route(body: RouteIn) -> dict:
     """The drive into each stop in the order given — every stop is kept, there
-    are no visit times. `optimize` answers in the planner's suggested order."""
+    are no visit times. `nearest_from` answers in nearest-next order from that
+    point instead (05 §4c); the legs are from home either way."""
     if not body.open_house_ids:
         raise HTTPException(422, "pick at least one open house")
     with make_session() as session:
@@ -384,10 +390,8 @@ def route(body: RouteIn) -> dict:
 
     home = (origin["lat"], origin["lon"])
     estimator = HaversineEstimator(settings.route_avg_mph, settings.route_detour_factor)
-    if body.optimize:
-        stops = suggested_order(
-            home, stops, start_at=_parse(body.start_at, "start_at") if body.start_at else None,
-            dwell_min=body.dwell_min, estimator=estimator)
+    if body.nearest_from:
+        stops = nearest_order((body.nearest_from.lat, body.nearest_from.lon), stops, estimator)
     legs = drive_legs(home, stops, estimator)
     return {
         "origin": origin,

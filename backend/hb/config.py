@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Open houses (docs/05 §4c). home_address only SEEDS the distance origin —
     # the live value is edited on the Open Houses page and kept in the
     # `settings` row `home_location`. Sources are names in
-    # hb.open_houses.sources.REGISTRY; the route planner estimates drive time
+    # hb.open_houses.sources.REGISTRY; day routes estimate drive time
     # as straight-line miles x detour factor at the average speed.
     home_address: str = ""
     open_house_sources: Annotated[list[str], NoDecode] = ["realtor", "redfin"]

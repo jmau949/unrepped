@@ -871,10 +871,9 @@ export const unmarkVisited = (id: string) =>
   send<{ id: string; visited: boolean }>(`/api/open-houses/${id}/visit`, "DELETE");
 export const planRoute = (body: {
   open_house_ids: string[];
-  /** answer in the planner's suggested order instead of the given one */
-  optimize?: boolean;
-  start_at?: string;
-  dwell_min?: number;
+  /** answer in nearest-next order from this point instead of the order given:
+   *  the stop nearest it first, then the nearest remaining stop to each one */
+  nearest_from?: { lat: number; lon: number };
 }) => send<RoutePlan>("/api/open-houses/route", "POST", body);
 export const reorderSchedule = (open_house_ids: string[]) =>
   send<{ open_house_ids: string[] }>("/api/open-houses/schedule/order", "PUT", { open_house_ids });
