@@ -30,7 +30,7 @@ const queryClient = new QueryClient({
 // persist: everything else is heavier, and none of it is meant to be served stale.
 const PERSISTED_KEYS = new Set(["open-houses", "open-house-schedule", "open-house-route"]);
 // Bump when an open-house response shape changes; a mismatch drops the saved copy.
-const PERSIST_BUSTER = "2";
+const PERSIST_BUSTER = "3";
 
 function makePersister() {
   try {

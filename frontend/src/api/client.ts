@@ -792,6 +792,8 @@ export interface OpenHouse {
   scheduled: boolean;
   /** upstream stopped listing this scheduled slot (only ever true on the schedule) */
   cancelled: boolean;
+  /** the buyer went (marked by hand, or by logging a tour that day); only on a scheduled slot */
+  visited: boolean;
   /** straight-line miles from the origin; null when either side has no coordinates */
   distance_mi: number | null;
   listing: ListingSummary;
@@ -847,12 +849,26 @@ export function getOpenHouses(filters: OpenHouseFilters) {
 export const getOrigin = () => get<{ origin: Origin | null }>("/api/open-houses/origin");
 export const putOrigin = (address: string) =>
   send<{ origin: Origin }>("/api/open-houses/origin", "PUT", { address });
-export const getSchedule = () =>
-  get<{ origin: Origin | null; timezone: string; items: OpenHouse[] }>("/api/open-houses/schedule");
+export interface Schedule {
+  origin: Origin | null;
+  timezone: string;
+  when: "upcoming" | "past";
+  /** how many of `items` are marked visited */
+  visited: number;
+  items: OpenHouse[];
+}
+/** scheduled slots not yet over, in the buyer's visiting order */
+export const getSchedule = () => get<Schedule>("/api/open-houses/schedule");
+/** scheduled slots that have ended, most recent first */
+export const getPastSchedule = () => get<Schedule>("/api/open-houses/schedule?when=past");
 export const scheduleOpenHouse = (id: string) =>
   send<{ id: string; scheduled: boolean }>(`/api/open-houses/${id}/schedule`, "PUT");
 export const unscheduleOpenHouse = (id: string) =>
   send<{ id: string; scheduled: boolean }>(`/api/open-houses/${id}/schedule`, "DELETE");
+export const markVisited = (id: string) =>
+  send<{ id: string; scheduled: boolean; visited: boolean }>(`/api/open-houses/${id}/visit`, "PUT");
+export const unmarkVisited = (id: string) =>
+  send<{ id: string; visited: boolean }>(`/api/open-houses/${id}/visit`, "DELETE");
 export const planRoute = (body: {
   open_house_ids: string[];
   /** answer in the planner's suggested order instead of the given one */

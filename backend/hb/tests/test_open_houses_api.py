@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,10 +21,11 @@ def _iso(dt):
 def client(engine, monkeypatch):
     import hb.api.listings as listings_module
     import hb.api.open_houses as oh_module
+    import hb.api.tours as tours_module
     import hb.db.engine as engine_module
 
     monkeypatch.setattr(engine_module, "_engine", engine)
-    for mod in (listings_module, oh_module):
+    for mod in (listings_module, oh_module, tours_module):
         monkeypatch.setattr(mod, "make_session", lambda: engine_module.make_session(engine))
     monkeypatch.setattr(settings, "home_address", "")
 
@@ -276,3 +278,74 @@ def test_reorder_schedule_swaps_only_the_given_slots(client, seeded):
     client.delete(f"/api/open-houses/{mid}/schedule")
     assert client.put("/api/open-houses/schedule/order",
                       json={"open_house_ids": [mid, near]}).status_code == 404
+
+
+def _past_slot(session, seeded, name, hours_ago):
+    """Move a seeded home's slot into the past: it started `hours_ago` and ran 1 h."""
+    oh = session.get(OpenHouse, seeded[name][1])
+    start = NOW - timedelta(hours=hours_ago)
+    oh.start_at, oh.end_at = _iso(start), _iso(start + timedelta(hours=1))
+    session.commit()
+    return oh.id
+
+
+def test_ended_scheduled_slots_are_the_past_schedule(client, seeded, session):
+    older = _past_slot(session, seeded, "mid", 50)
+    newer = _past_slot(session, seeded, "far", 26)
+    for oh_id in (older, newer, seeded["near"][1]):
+        client.put(f"/api/open-houses/{oh_id}/schedule")
+
+    upcoming = client.get("/api/open-houses/schedule").json()
+    assert [i["id"] for i in upcoming["items"]] == [seeded["near"][1]]
+    past = client.get("/api/open-houses/schedule", params={"when": "past"}).json()
+    assert [i["id"] for i in past["items"]] == [newer, older]  # most recent first
+    assert past["visited"] == 0 and not any(i["visited"] for i in past["items"])
+    assert client.get("/api/open-houses/schedule",
+                      params={"when": "later"}).status_code == 422
+
+
+def test_mark_visited_round_trip(client, seeded, session):
+    went = _past_slot(session, seeded, "mid", 26)
+    skipped = _past_slot(session, seeded, "far", 50)
+    client.put(f"/api/open-houses/{skipped}/schedule")
+
+    # visiting a slot that was never scheduled puts it on the schedule too
+    assert client.put(f"/api/open-houses/{went}/visit").json() == {
+        "id": went, "scheduled": True, "visited": True}
+    client.put(f"/api/open-houses/{went}/visit")  # idempotent
+    past = client.get("/api/open-houses/schedule", params={"when": "past"}).json()
+    assert {i["id"]: i["visited"] for i in past["items"]} == {went: True, skipped: False}
+    assert past["visited"] == 1
+
+    assert client.delete(f"/api/open-houses/{went}/visit").json() == {"id": went, "visited": False}
+    past = client.get("/api/open-houses/schedule", params={"when": "past"}).json()
+    assert past["visited"] == 0 and len(past["items"]) == 2  # still scheduled
+
+    client.put(f"/api/open-houses/{went}/visit")
+    client.delete(f"/api/open-houses/{went}/schedule")  # unscheduling forgets the visit
+    session.expire_all()
+    assert session.get(OpenHouse, went).visited_at is None
+
+
+def test_visit_needs_a_started_slot(client, seeded):
+    future = seeded["far"][1]
+    client.put(f"/api/open-houses/{future}/schedule")
+    assert client.put(f"/api/open-houses/{future}/visit").status_code == 422
+    assert client.put("/api/open-houses/nope/visit").status_code == 404
+    assert client.delete("/api/open-houses/nope/visit").status_code == 404
+
+
+def test_logging_a_tour_visits_that_days_scheduled_slot(client, seeded, session):
+    lid, _ = seeded["mid"]
+    went = _past_slot(session, seeded, "mid", 2)
+    client.put(f"/api/open-houses/{went}/schedule")
+    other_day = _past_slot(session, seeded, "far", 50)
+    client.put(f"/api/open-houses/{other_day}/schedule")
+
+    day = datetime.fromisoformat(session.get(OpenHouse, went).start_at).astimezone(
+        ZoneInfo(settings.timezone)).date().isoformat()
+    assert client.post("/api/tours", json={"listing_id": lid, "toured_on": day}).status_code == 200
+    far_lid = seeded["far"][0]
+    client.post("/api/tours", json={"listing_id": far_lid, "toured_on": day})  # wrong day
+    past = client.get("/api/open-houses/schedule", params={"when": "past"}).json()
+    assert {i["id"]: i["visited"] for i in past["items"]} == {went: True, other_day: False}

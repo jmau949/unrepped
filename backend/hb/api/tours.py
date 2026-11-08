@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from hb import tour_spec, watchlist
+from hb.api.open_houses import note_tour
 from hb.db.engine import make_session
 from hb.db.models import (
     HazardFlag,
@@ -172,6 +173,7 @@ def import_tours(req: ImportRequest) -> dict:
                     source="offline_kit",
                 ))
                 watchlist.set_watching(prop, True)
+                note_tour(session, prop.id, incoming.toured_on)
                 created += 1
                 continue
 
@@ -274,6 +276,7 @@ def create_tour(req: TourRequest) -> dict:
                            toured_on=toured_on, kind=kind)
         session.add(row)
         watchlist.set_watching(prop, True)  # touring a home watches it (docs/08 §5b)
+        note_tour(session, prop.id, toured_on)  # and visits its scheduled open house
         session.commit()
         return tour_out(row, facts_for(session, prop))
 

@@ -88,9 +88,10 @@ schools, school_districts (no FK to properties — school assignment is a spatia
 | scheduled_at | TEXT NULL | set = on the buyer's open-house schedule (`PUT/DELETE /api/open-houses/{id}/schedule`) |
 | schedule_position | INTEGER NULL | the buyer's visiting order across the schedule (a day reads its slots in this order); set with `scheduled_at` — a new slot goes last — cleared with it, rearranged by `PUT /api/open-houses/schedule/order` |
 | cancelled_at | TEXT NULL | set = a scheduled slot the source stopped reporting; cleared if it reappears |
+| visited_at | TEXT NULL | set = the buyer went to this scheduled slot. Set by `PUT /api/open-houses/{id}/visit` (only once the slot has started; schedules the slot if it wasn't) or by logging a tour for the home on the slot's local date (`POST /api/tours`, `/api/tours/import`); cleared by `DELETE …/visit` and by unscheduling |
 | first_seen, last_seen | TEXT NOT NULL | ingest bookkeeping |
 
-**Unique key**: `(listing_id, start_at)` — one row per slot however many sources report it. **Index**: `(start_at)`. Future slots no source reports any more are deleted by the next clean run (cancelled, or the home went pending) — unless scheduled, in which case they are stamped `cancelled_at` and kept so the schedule can say the visit is off; past slots stay as history. Feeds `ListingSummary.next_open_house` and the Open Houses page (08 §14).
+**Unique key**: `(listing_id, start_at)` — one row per slot however many sources report it. **Index**: `(start_at)`. Future slots no source reports any more are deleted by the next clean run (cancelled, or the home went pending) — unless scheduled, in which case they are stamped `cancelled_at` and kept so the schedule can say the visit is off; past slots stay as history, and the scheduled ones among them are the buyer's past schedule (`GET /api/open-houses/schedule?when=past`), each visited or not. Feeds `ListingSummary.next_open_house` and the Open Houses page (08 §14).
 
 ### listing_events — append-only diff log (drives alerts + timeline)
 | column | type | notes |
@@ -248,12 +249,13 @@ costs on read, so a spec correction reprices an open deal.
 **Unique key**: `(school_id, source)` — mirrors the avm_snapshots multi-source pattern; `schools.rating/pct_met` stay as the CAASPP fast-path columns. **Index**: `ix_school_rating_snapshots_school(school_id)`.
 
 ## Alembic conventions
-- The schema is seven migrations in `migrations/versions/`, applied in order by `hb serve`, `hb db upgrade` and every `hb pipeline` / `hb alerts send` / `hb backtest` command (`cli._ready_db`); a fresh clone needs nothing else:
+- The schema is eight migrations in `migrations/versions/`, applied in order by `hb serve`, `hb db upgrade` and every `hb pipeline` / `hb alerts send` / `hb backtest` command (`cli._ready_db`); a fresh clone needs nothing else:
   - `0001_initial` — the whole schema, plus the `buyer_profile` default row and the `alert_rules` settings row (existence-guarded, so re-running is a no-op);
   - `0002_open_house_slot_key` — `open_houses` unique on `(listing_id, start_at)` across sources (duplicate rows already stored for one slot are collapsed first, keeping the scheduled one, else the oldest);
   - `0003_open_house_schedule_position` — `open_houses.schedule_position` (already-scheduled slots numbered soonest first);
   - `0004_watchlist` — `properties.watched_at` / `watch_hidden_at`;
   - `0005_profile_income` — `buyer_profile.annual_income` / `monthly_debts` (NOT NULL, server default 0);
   - `0006_watch_only_watched_at` — Watchlist membership becomes `watched_at` alone: toured, un-hidden homes get it stamped, hidden homes have it cleared, and `watch_hidden_at` is dropped;
-  - `0007_alert_read_at` — `alerts.read_at`; alerts already delivered when it lands start read (`read_at = delivered_at`), since nothing can say whether they were opened.
+  - `0007_alert_read_at` — `alerts.read_at`; alerts already delivered when it lands start read (`read_at = delivered_at`), since nothing can say whether they were opened;
+  - `0008_open_house_visited_at` — `open_houses.visited_at`, which scheduled slots the buyer actually went to (every existing row starts unvisited).
 - A model change edits `models.py` and adds a hand-reviewed migration on top (autogenerate, then review batch-mode artefacts, JSON types and constraint names): `tests/test_migrations.py::test_migration_matches_models` runs `alembic.autogenerate.compare_metadata` against a DB built by the migrations and fails on any drift.

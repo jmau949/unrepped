@@ -126,7 +126,8 @@ def _open_houses(session: Session, listing: Listing) -> list[dict]:
         {"id": oh.id, "source": oh.source, "start_at": oh.start_at, "end_at": oh.end_at,
          "description": oh.description, "href": oh.href, "methods": oh.methods,
          "scheduled": oh.scheduled_at is not None,
-         "cancelled": oh.cancelled_at is not None}
+         "cancelled": oh.cancelled_at is not None,
+         "visited": oh.visited_at is not None}
         for oh in rows
     ]
 

@@ -9,11 +9,18 @@ the DB, so it survives reloads and devices, and the pipeline flags a scheduled
 slot `cancelled_at` rather than deleting it. `schedule_position` is the
 buyer's visiting order: a new slot goes last, `PUT /schedule/order`
 rearranges, and a day's route drives that order.
+
+A scheduled slot that has ended stays scheduled: `GET /schedule?when=past` is
+the buyer's history, and `visited_at` records which of those visits actually
+happened (`PUT /{id}/visit`, allowed once the slot has started). Logging a
+tour marks the home's scheduled slots that day visited too (`note_tour`).
 """
 
 import logging
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -158,6 +165,7 @@ def _items(session: Session, rows, origin: dict | None,
             "description": oh.description, "href": oh.href, "methods": oh.methods,
             "scheduled": oh.scheduled_at is not None,
             "cancelled": oh.cancelled_at is not None,
+            "visited": oh.visited_at is not None,
             "distance_mi": distance, "listing": summaries[listing.id],
         })
     return items
@@ -207,19 +215,25 @@ def list_open_houses(
 
 
 @router.get("/schedule")
-def get_schedule() -> dict:
-    """Every scheduled slot that hasn't ended, in the buyer's order — including ones
-    upstream cancelled and ones whose home has since gone pending, so the
-    buyer sees why a visit is off rather than having it vanish."""
+def get_schedule(when: Literal["upcoming", "past"] = "upcoming") -> dict:
+    """`upcoming`: every scheduled slot that hasn't ended, in the buyer's order —
+    including ones upstream cancelled and ones whose home has since gone
+    pending, so the buyer sees why a visit is off rather than having it vanish.
+    `past`: every scheduled slot that has ended, most recent first, with how
+    many of them the buyer marked visited."""
+    now = utcnow_iso()
     with make_session() as session:
         origin = load_origin(session)
-        rows = session.execute(
-            _rows_stmt()
-            .where(OpenHouse.scheduled_at.is_not(None), OpenHouse.end_at > utcnow_iso())
-            .order_by(OpenHouse.schedule_position, OpenHouse.start_at)
-        ).all()
-        return {"origin": origin, "timezone": settings.timezone,
-                "items": _items(session, rows, origin)}
+        stmt = _rows_stmt().where(OpenHouse.scheduled_at.is_not(None))
+        if when == "past":
+            stmt = stmt.where(OpenHouse.end_at <= now).order_by(
+                OpenHouse.start_at.desc(), OpenHouse.schedule_position)
+        else:
+            stmt = stmt.where(OpenHouse.end_at > now).order_by(
+                OpenHouse.schedule_position, OpenHouse.start_at)
+        items = _items(session, session.execute(stmt).all(), origin)
+        return {"origin": origin, "timezone": settings.timezone, "when": when,
+                "visited": sum(i["visited"] for i in items), "items": items}
 
 
 @router.put("/{open_house_id}/schedule")
@@ -268,9 +282,57 @@ def unschedule(open_house_id: str) -> dict:
             # only the schedule kept a cancelled slot alive — nothing else wants it
             session.delete(oh)
         else:
-            oh.scheduled_at = oh.schedule_position = None
+            oh.scheduled_at = oh.schedule_position = oh.visited_at = None
         session.commit()
         return {"id": open_house_id, "scheduled": False}
+
+
+def note_tour(session: Session, property_id: str, toured_on: str) -> None:
+    """A tour logged for a home on a local date means the buyer went: mark that
+    day's started, scheduled slots for the home visited. The caller commits."""
+    tz = ZoneInfo(settings.timezone)
+    now = utcnow_iso()
+    slots = session.execute(
+        select(OpenHouse).join(Listing, OpenHouse.listing_id == Listing.id)
+        .where(Listing.property_id == property_id, OpenHouse.scheduled_at.is_not(None),
+               OpenHouse.visited_at.is_(None), OpenHouse.start_at <= now)
+    ).scalars().all()
+    for oh in slots:
+        if datetime.fromisoformat(oh.start_at).astimezone(tz).date().isoformat() == toured_on:
+            oh.visited_at = now
+
+
+@router.put("/{open_house_id}/visit")
+def mark_visited(open_house_id: str) -> dict:
+    """The buyer went. Allowed once the slot has started; a slot not yet on the
+    schedule is added to it, so every visit shows up in the history."""
+    with make_session() as session:
+        oh = session.get(OpenHouse, open_house_id)
+        if oh is None:
+            raise HTTPException(404, "open house not found")
+        now = utcnow_iso()
+        if oh.start_at > now:
+            raise HTTPException(422, "this open house hasn't started yet")
+        if oh.scheduled_at is None:
+            last = session.execute(select(func.max(OpenHouse.schedule_position))).scalar()
+            oh.scheduled_at = now
+            oh.schedule_position = (last or 0) + 1
+        if oh.visited_at is None:
+            oh.visited_at = now
+        session.commit()
+        return {"id": oh.id, "scheduled": True, "visited": True}
+
+
+@router.delete("/{open_house_id}/visit")
+def unmark_visited(open_house_id: str) -> dict:
+    """The buyer didn't go after all; the slot stays on the schedule."""
+    with make_session() as session:
+        oh = session.get(OpenHouse, open_house_id)
+        if oh is None:
+            raise HTTPException(404, "open house not found")
+        oh.visited_at = None
+        session.commit()
+        return {"id": oh.id, "visited": False}
 
 
 @router.get("/origin")

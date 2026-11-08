@@ -120,7 +120,8 @@ class OpenHouse(Base):
     Future rows are replaced by each `open-houses` run (a slot that vanishes
     upstream was cancelled); past rows stay as the record of what was held.
     A slot the buyer put on their schedule is never swept: it is stamped
-    `cancelled_at` instead, so the schedule can say so.
+    `cancelled_at` instead, so the schedule can say so. Scheduled slots that
+    have ended are the buyer's open-house history, each marked visited or not.
     """
 
     __tablename__ = "open_houses"
@@ -142,6 +143,8 @@ class OpenHouse(Base):
     # this order); set with scheduled_at, new slots go last
     schedule_position: Mapped[int | None]
     cancelled_at: Mapped[str | None]  # set = upstream stopped listing a scheduled slot
+    # set = the buyer went; only once the slot has started, and only on a scheduled one
+    visited_at: Mapped[str | None]
     first_seen: Mapped[str] = mapped_column(default=utcnow_iso)
     last_seen: Mapped[str] = mapped_column(default=utcnow_iso)
 

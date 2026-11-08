@@ -4,16 +4,20 @@ import {
   createTour,
   getMarketSummary,
   getOpenHouses,
+  getPastSchedule,
   getSchedule,
+  markVisited,
   planRoute,
   putOrigin,
   reorderSchedule,
   scheduleOpenHouse,
+  unmarkVisited,
   unscheduleOpenHouse,
   type ListingSummary,
   type OpenHouse,
   type OpenHouseFilters,
   type Origin,
+  type Schedule,
 } from "../api/client";
 import ExtLink from "../components/ExtLink";
 import LazyMapView from "../components/LazyMapView";
@@ -76,6 +80,33 @@ function useScheduleToggle() {
       qc.invalidateQueries({ queryKey: ["open-house-schedule"] });
     },
   });
+}
+
+/** mark a started slot visited or not; the schedule (upcoming and past) and the list refetch */
+function useVisitToggle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (oh: Pick<OpenHouse, "id" | "visited">) =>
+      oh.visited ? unmarkVisited(oh.id) : markVisited(oh.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["open-houses"] });
+      qc.invalidateQueries({ queryKey: ["open-house-schedule"] });
+    },
+  });
+}
+
+/** Went / Didn't go switch on one scheduled slot that has started */
+function VisitedToggle({ oh }: { oh: Pick<OpenHouse, "id" | "visited"> }) {
+  const toggle = useVisitToggle();
+  return (
+    <button onClick={() => toggle.mutate(oh)} disabled={toggle.isPending}
+            className={`relative z-10 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium disabled:opacity-50 ${oh.visited
+              ? "bg-emerald-600 text-white hover:bg-emerald-700"
+              : "border border-slate-300 text-slate-600 hover:bg-slate-100"}`}
+            title={oh.visited ? "You went. Click if you didn't" : "Mark that you went to this open house"}>
+      {oh.visited ? "✓ Went" : "Went?"}
+    </button>
+  );
 }
 
 export default function OpenHouses() {
@@ -437,10 +468,19 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
   const l = oh.listing;
   const started = new Date(oh.start_at) <= new Date();
   const open = useOpenListing();
+  const qc = useQueryClient();
+  // logging a visit is going: the slot is marked visited (and scheduled, if it wasn't)
   const log = useMutation({
-    mutationFn: () => createTour({ listing_id: l.id, kind: "open_house",
-                                   toured_on: dayKey(oh.start_at, tz) }),
-    onSuccess: () => { onOpened(l.id); open(l.id); },  // the tour log lives on the detail page
+    mutationFn: async () => {
+      await markVisited(oh.id);
+      return createTour({ listing_id: l.id, kind: "open_house", toured_on: dayKey(oh.start_at, tz) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["open-houses"] });
+      qc.invalidateQueries({ queryKey: ["open-house-schedule"] });
+      onOpened(l.id);
+      open(l.id);  // the tour log lives on the detail page
+    },
   });
 
   return (
@@ -491,9 +531,10 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
           {started && (
             <button onClick={() => log.mutate()} className={LINK} disabled={log.isPending}
                     title="Start a tour-log entry for this visit">
-              {log.isPending ? "Logging…" : "Log visit"}
+              {log.isPending ? "Logging…" : oh.visited ? "Tour log" : "Log visit"}
             </button>
           )}
+          {oh.visited && <span className="text-xs font-medium text-emerald-700">✓ went</span>}
         </div>
       </div>
       <div className="max-w-[6rem] shrink-0 text-right sm:max-w-none">
@@ -513,15 +554,39 @@ function OpenHouseRow({ oh, origin, tz, highlighted, viewed, lastOpened, rowRef,
   );
 }
 
-/** The open houses the buyer plans to go to, saved server-side, one tab per
- *  day; each day's stops are a driving route in the buyer's own order. */
-function SchedulePanel({ onOpened, onHover, hoveredId }: {
+type PanelProps = {
   /** the home is being opened from here — the list remembers it (✓, amber bar) */
   onOpened: (listingId: string) => void;
   /** hovering a stop lights up its map pin and list rows */
   onHover: (listingId: string | null) => void;
   hoveredId: string | null;
-}) {
+};
+
+/** The buyer's schedule, saved server-side. Upcoming: the open houses still
+ *  ahead, one tab per day, each day a driving route in the buyer's own order.
+ *  Past: every scheduled open house that has ended, marked went or not. */
+function SchedulePanel(props: PanelProps) {
+  const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
+  const tabBtn = (v: typeof tab, label: string) => (
+    <button onClick={() => setTab(v)}
+            className={`${CHIP} ${tab === v
+              ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-slate-100"}`}>
+      {label}
+    </button>
+  );
+  return (
+    <section className="max-h-[50dvh] overflow-auto rounded-lg border border-slate-200 bg-white p-4 lg:max-h-[55%]">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h2 className="mr-1 text-base font-bold">My schedule</h2>
+        {tabBtn("upcoming", "Upcoming")}
+        {tabBtn("past", "Past")}
+      </div>
+      {tab === "upcoming" ? <UpcomingSchedule {...props} /> : <PastSchedule {...props} />}
+    </section>
+  );
+}
+
+function UpcomingSchedule({ onOpened, onHover, hoveredId }: PanelProps) {
   const sched = useQuery({ queryKey: ["open-house-schedule"], queryFn: getSchedule });
   const items = sched.data?.items ?? [];
   const tz = sched.data?.timezone;
@@ -531,14 +596,12 @@ function SchedulePanel({ onOpened, onHover, hoveredId }: {
   const day = days.find((d) => d.key === picked) ?? days[0];
 
   return (
-    <section className="max-h-[50dvh] overflow-auto rounded-lg border border-slate-200 bg-white p-4 lg:max-h-[55%]">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-bold">My schedule</h2>
-        <span className="text-sm text-slate-500">
-          {items.length > 0 &&
-            `${items.length} open house${items.length === 1 ? "" : "s"} · ${days.length} day${days.length === 1 ? "" : "s"}`}
-        </span>
-      </div>
+    <>
+      {items.length > 0 && (
+        <p className="mb-2 text-sm text-slate-500">
+          {`${items.length} open house${items.length === 1 ? "" : "s"} · ${days.length} day${days.length === 1 ? "" : "s"}`}
+        </p>
+      )}
       {sched.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
       {!sched.isLoading && items.length === 0 && (
         <p className="text-sm text-slate-500">
@@ -571,11 +634,95 @@ function SchedulePanel({ onOpened, onHover, hoveredId }: {
       )}
       {day && <DaySchedule key={day.key} items={day.items} origin={origin} tz={tz}
                            onOpened={onOpened} onHover={onHover} hoveredId={hoveredId} />}
-    </section>
+    </>
   );
 }
 
-type Schedule = Awaited<ReturnType<typeof getSchedule>>;
+type PastFilter = "all" | "went" | "skipped";
+
+/** Every scheduled open house that has ended, newest day first, each marked
+ *  Went or not: the record of which homes were actually seen in person. */
+function PastSchedule({ onOpened, onHover, hoveredId }: PanelProps) {
+  const past = useQuery({ queryKey: ["open-house-schedule", "past"], queryFn: getPastSchedule });
+  const items = useMemo(() => past.data?.items ?? [], [past.data]);
+  const tz = past.data?.timezone;
+  const went = past.data?.visited ?? 0;
+  const [show, setShow] = useState<PastFilter>("all");
+  const days = useMemo(() => groupByDay(
+    items.filter((i) => show === "all" || i.visited === (show === "went")),
+    (oh) => oh.start_at, tz, "desc"), [items, show, tz]);
+  const remove = useScheduleToggle();
+
+  if (past.isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No past open houses yet. When a scheduled open house ends it moves here, where you
+        mark whether you went.
+      </p>
+    );
+  }
+  const filterBtn = (v: PastFilter, label: string, n: number) => (
+    <button onClick={() => setShow(v)}
+            className={`rounded px-2 py-0.5 text-xs ${show === v
+              ? "bg-slate-200 font-medium text-slate-900" : "text-slate-500 hover:bg-slate-100"}`}>
+      {label} ({n})
+    </button>
+  );
+
+  return (
+    <div className="text-sm">
+      <div className="mb-2 flex flex-wrap items-center gap-1">
+        <span className="mr-2 text-slate-500">Went to {went} of {items.length}</span>
+        {filterBtn("all", "All", items.length)}
+        {filterBtn("went", "Went", went)}
+        {filterBtn("skipped", "Didn't go", items.length - went)}
+      </div>
+      {days.length === 0 && <p className="text-xs text-slate-400">None.</p>}
+      {days.map((g) => {
+        const d = dayParts(g.iso, tz);
+        const dayItems = [...g.items].sort((a, b) => a.start_at.localeCompare(b.start_at));
+        return (
+          <div key={g.key} className="mb-3">
+            <h3 className="mb-1 flex items-baseline gap-2 border-b border-slate-100 pb-0.5">
+              <span className="font-semibold">{d.relative ?? d.weekday}</span>
+              <span className="text-xs text-slate-500">{d.date}</span>
+              <span className="ml-auto text-xs text-slate-400">
+                went to {dayItems.filter((i) => i.visited).length} of {dayItems.length}
+              </span>
+            </h3>
+            <ul className="space-y-1">
+              {dayItems.map((oh) => (
+                <li key={oh.id} onMouseEnter={() => onHover(oh.listing_id)}
+                    onMouseLeave={() => onHover(null)}
+                    className={`relative -mx-1 flex items-start gap-2 rounded px-1 py-0.5 ${
+                      hoveredId === oh.listing_id ? "bg-blue-50" : ""}`}>
+                  <VisitedToggle oh={oh} />
+                  <div className="min-w-0 flex-1">
+                    <ListingLink id={oh.listing_id} onOpen={onOpened}
+                                 className={`block truncate font-medium ${oh.visited ? "" : "text-slate-500"}`}>
+                      {oh.listing.address}, {oh.listing.city}
+                    </ListingLink>
+                    <div className="text-xs text-slate-500">
+                      {openHouseWindow(oh.start_at, oh.end_at, tz)} · {money(oh.listing.list_price)}
+                      {oh.listing.status !== "active" && (
+                        <span className="text-amber-700"> · now {oh.listing.status}</span>
+                      )}
+                      {oh.cancelled && <span className="text-red-700"> · cancelled upstream</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => remove.mutate(oh)} disabled={remove.isPending}
+                          className="relative z-10 text-slate-300 hover:text-slate-600"
+                          aria-label="remove from history" title="remove from history">✕</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 const ICON_BTN = "relative z-10 px-1 text-slate-300 hover:text-slate-700 disabled:invisible";
 
 /** One day of the schedule in the buyer's own order: drag a stop (or use
@@ -604,7 +751,7 @@ function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
   const reorder = useMutation({
     mutationFn: reorderSchedule,
     onMutate: async (order: string[]) => {
-      await qc.cancelQueries({ queryKey: ["open-house-schedule"] });
+      await qc.cancelQueries({ queryKey: ["open-house-schedule"], exact: true });
       const prev = qc.getQueryData<Schedule>(["open-house-schedule"]);
       if (prev) {
         const byId = new Map(prev.items.map((i) => [i.id, i]));
@@ -706,6 +853,7 @@ function DaySchedule({ items, origin, tz, onOpened, onHover, hoveredId }: {
                   {leg?.drive_min != null && ` · ${Math.round(leg.drive_min)} min drive`}
                 </div>
               </div>
+              {new Date(oh.start_at) <= new Date() && <VisitedToggle oh={oh} />}
               <button onClick={() => move(oh.id, n - 1)} disabled={n === 0 || reorder.isPending}
                       className={ICON_BTN} aria-label="move up" title="move up">▲</button>
               <button onClick={() => move(oh.id, n + 1)}
