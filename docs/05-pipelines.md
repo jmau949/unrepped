@@ -143,9 +143,9 @@ Goal: true cumulative DOM per property across delist/relist games.
 
 ## 7. `enrich` (on-demand + auto for tracked)
 
-`hb pipeline enrich --property-id X` (UI button) and automatically for all `tracked_listings` (stages saved→offered) once per day within the scan run:
+`hb pipeline enrich --property-id X`, automatically for all `tracked_listings` (stages saved→offered) once per day within the scan run, and from the listing page: on load it calls `POST /api/properties/{id}/enrich?auto=true`, which runs step 1 alone, without the gallery download, so the estimate is back in seconds (`enrich_one(metered=False)`), and skips the run entirely when today's `realtor_estimate` snapshot exists; the page's "Fetch paid estimates" button (shown only when a metered source is configured) runs all three steps; the scan's pass over tracked homes runs steps 1 and 3:
 1. **Realtor.com** (free, no key): a `GetHomeDetails` query to the frontdoor GraphQL (`realtor_gql.py`; the scan-stored mpr id when there is one, else an address resolve) → home-value estimate → `avm_snapshots (source='realtor_estimate', as_of=today)`, details (fill property NULLs via §5 merge rules) and gallery photo URLs (downloaded per §4.6) — the `(property_id, source, as_of)` key makes daily re-runs idempotent. Redfin's stingray API sits behind a WAF and 403s every request, so it is not a source.
-2. **RentCast** (needs `RENTCAST_API_KEY`; budget-guarded, 03 §3.1): `/avm/value` → snapshot `source='rentcast'` + the returned comps persisted as `sales` rows (`source='rentcast'`) keyed `(property_id, sale_date)`.
+2. **RentCast** (needs `RENTCAST_API_KEY`; budget-guarded, 03 §3.1; **only when asked for by hand** — `enrich_one(rentcast=True)`, from the page's button or the CLI's `--rentcast`; the scan's daily pass over tracked homes and the page-load call never spend one): `/avm/value` → snapshot `source='rentcast'` + the returned comps persisted as `sales` rows (`source='rentcast'`) keyed `(property_id, sale_date)`.
 3. Optional Zestimate via a RapidAPI Zillow wrapper when both `ZILLOW_WRAPPER_ENABLED` and `RAPIDAPI_KEY` are set → snapshot `source='zestimate'`.
 Rate limit: ≥ 1 s jittered sleep between external calls.
 

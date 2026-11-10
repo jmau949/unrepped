@@ -50,7 +50,7 @@ def test_overbid_shape(client, seeded):
     body = client.get(f"/api/overbid/{seeded.id}").json()
     assert body["basis"] in ("fresh", "stale")
     assert body["n_comps"] == 10
-    for key in ("list_price", "p25", "p50", "p75", "predicted", "histogram", "comps",
+    for key in ("list_price", "p25", "p50", "p75", "predicted", "comps",
                 "n_eff", "window_days", "atypical_pricing"):
         assert key in body
     assert body["predicted"]["low"] <= body["predicted"]["point"] <= body["predicted"]["high"]
@@ -66,3 +66,34 @@ def test_predicted_sale_in_listings(client, seeded):
     assert item["predicted_sale"] is not None
     assert item["predicted_sale"]["basis"] in ("fresh", "stale")
     assert item["predicted_sale"]["point"] > 0
+
+
+def test_auto_enrich_is_free_and_once_a_day(client, seeded, monkeypatch):
+    """The listing page's on-load call: Realtor.com only, and no second run the
+    same day once its estimate is stored."""
+    from hb.pipelines import enrich
+
+    calls = []
+
+    def realtor(address, mpr_id=None):
+        calls.append(address)
+        return {"estimate": 2_250_000, "low": 2_100_000, "high": 2_400_000,
+                "photo_urls": [], "property": {}}
+
+    def paid(*_a, **_kw):
+        raise AssertionError("a metered source was called")
+
+    monkeypatch.setattr(enrich.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(enrich.settings, "rentcast_api_key", "test-key")
+    monkeypatch.setattr(enrich, "fetch_realtor_estimate", realtor)
+    monkeypatch.setattr(enrich, "fetch_rentcast_avm", paid)
+    monkeypatch.setattr(enrich, "fetch_zestimate", paid)
+
+    url = f"/api/properties/{seeded.property_id}/enrich"
+    first = client.post(url, params={"auto": "true"}).json()
+    assert [a["source"] for a in first["avm_snapshots"]] == ["realtor_estimate"]
+    assert first["metered_configured"] is True
+
+    second = client.post(url, params={"auto": "true"}).json()
+    assert len(calls) == 1  # today's estimate is stored: nothing fetched again
+    assert second["avm_snapshots"] == first["avm_snapshots"]

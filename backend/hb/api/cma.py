@@ -37,7 +37,8 @@ def _subject_block(session, property_id: str) -> dict | None:
     if p is None:
         return None
     return {"property_id": p.id, "address": p.address_norm.title(), "lat": p.lat,
-            "lon": p.lon, "sqft": p.sqft, "beds": p.beds, "baths": p.baths}
+            "lon": p.lon, "sqft": p.sqft, "beds": p.beds, "baths": p.baths,
+            "lot_sqft": p.lot_sqft, "condition_tag": p.condition_tag}
 
 
 def _serialize(session, result: cma.CmaResult) -> dict:
@@ -57,7 +58,7 @@ def _serialize(session, result: cma.CmaResult) -> dict:
                 "sale_id": c.sale_id, "address": c.address, "sale_date": c.sale_date,
                 "sale_price": c.sale_price, "distance_mi": c.distance_mi, "lat": c.lat,
                 "lon": c.lon, "beds": c.beds, "baths": c.baths, "sqft": c.sqft,
-                "condition_tag": c.condition_tag, "similarity_score": c.similarity_score,
+                "lot_sqft": c.lot_sqft, "condition_tag": c.condition_tag, "similarity_score": c.similarity_score,
                 "auto_selected": c.auto_selected, "included": c.included,
                 "time_adj_factor": c.time_adj_factor, "adjustments": c.adjustments,
                 "adjusted_price": c.adjusted_price,
@@ -134,7 +135,8 @@ def _serialize_stored(session, run: CmaRun) -> dict:
             "address": f"{prop.address_norm.title()}{' #' + prop.unit if prop.unit else ''}",
             "sale_date": sale.sale_date, "sale_price": sale.sale_price, "distance_mi": dist,
             "lat": prop.lat, "lon": prop.lon, "beds": prop.beds, "baths": prop.baths,
-            "sqft": prop.sqft, "condition_tag": prop.condition_tag,
+            "sqft": prop.sqft, "lot_sqft": prop.lot_sqft,
+            "condition_tag": prop.condition_tag,
             "similarity_score": cc.similarity_score, "auto_selected": cc.auto_selected,
             "included": cc.included, "time_adj_factor": cc.time_adj_factor,
             "adjustments": adj, "adjusted_price": cc.adjusted_price,

@@ -50,33 +50,3 @@ def weighted_median(values: Sequence[float], weights: Sequence[float]) -> float:
     result = weighted_quantile(values, weights, 0.5)
     assert isinstance(result, float)
     return result
-
-
-def weighted_histogram(
-    values: Sequence[float],
-    weights: Sequence[float],
-    bins: int | Sequence[float] = 10,
-    value_range: tuple[float, float] | None = None,
-) -> list[tuple[float, float, float]]:
-    """Weighted histogram → ``[(bucket_low, bucket_high, weight), ...]``.
-
-    ``bins`` is either a bucket count or explicit edges. Empty input → ``[]``.
-    """
-    v = np.asarray(values, dtype=float)
-    w = np.asarray(weights, dtype=float)
-    if v.size == 0:
-        return []
-    if isinstance(bins, int):
-        if value_range is None:
-            lo, hi = float(v.min()), float(v.max())
-        else:
-            lo, hi = value_range
-        if hi <= lo:
-            hi = lo + 1.0  # avoid a zero-width single bucket
-        counts, edges = np.histogram(v, bins=bins, range=(lo, hi), weights=w)
-    else:
-        counts, edges = np.histogram(v, bins=np.asarray(bins, dtype=float), weights=w)
-    return [
-        (float(edges[i]), float(edges[i + 1]), float(counts[i]))
-        for i in range(len(counts))
-    ]

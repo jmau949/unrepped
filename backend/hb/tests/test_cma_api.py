@@ -93,6 +93,10 @@ def test_run_shape(client, seeded):
     comp = body["comps"][0]
     assert set(comp["adjustments"]) == {"time", "sqft", "baths", "lot", "condition"}
     assert "distance_mi" in comp and "similarity_score" in comp
+    # the facts the workbench explains each adjustment with
+    assert comp["lot_sqft"] == 5000 and comp["condition_tag"] == "dated"
+    assert body["subject"]["lot_sqft"] == 5000
+    assert body["subject"]["condition_tag"] == "dated"
 
 
 def test_run_unknown_property_404(client, seeded):

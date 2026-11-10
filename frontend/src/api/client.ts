@@ -560,6 +560,7 @@ export interface CmaComp {
   beds: number | null;
   baths: number | null;
   sqft: number | null;
+  lot_sqft: number | null;
   condition_tag: string | null;
   similarity_score: number;
   auto_selected: boolean;
@@ -577,6 +578,8 @@ export interface CmaSubject {
   sqft: number | null;
   beds: number | null;
   baths: number | null;
+  lot_sqft: number | null;
+  condition_tag: string | null;
 }
 
 export interface CmaRun {
@@ -624,7 +627,6 @@ export interface OverbidResult {
   p75: number | null;
   predicted: { low: number; point: number; high: number } | null;
   atypical_pricing: boolean;
-  histogram: { bucket_low: number; bucket_high: number; weight: number }[];
   comps: OverbidComp[];
 }
 
@@ -638,6 +640,7 @@ export interface AvmSnapshotOut {
 
 export interface EnrichResult {
   avm_snapshots: AvmSnapshotOut[];
+  metered_configured: boolean;
   rentcast_quota_remaining: number | null;
 }
 
@@ -656,8 +659,9 @@ export const patchCmaAdjustments = (
 
 export const getOverbid = (listing_id: string) =>
   get<OverbidResult>(`/api/overbid/${listing_id}`);
-export const enrichProperty = (property_id: string) =>
-  send<EnrichResult>(`/api/properties/${property_id}/enrich`, "POST");
+/** `auto` is the page-load call: the free source only, at most once a day. */
+export const enrichProperty = (property_id: string, auto = false) =>
+  send<EnrichResult>(`/api/properties/${property_id}/enrich${auto ? "?auto=true" : ""}`, "POST");
 
 // --- Tours (docs/07 §Tours, docs/13 tour playbook) ---
 

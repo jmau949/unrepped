@@ -69,10 +69,12 @@ Used by enrich for a second AVM and to import comparable sales.
    ```
    The guard (an AppSetting counter surfaced in `/api/ops/health` as
    `rentcast_quota_remaining`) refuses the call once the monthly count is hit —
-   no accidental overage — and resets at each month boundary.
-5. Verify: on a listing detail page click **Refresh estimates**, or run
-   `hb pipeline enrich --property-id <id>`; a `rentcast` dot appears in the AVM
-   spread and the quota decrements.
+   no accidental overage (RentCast bills each request past the allowance) — and
+   resets at each month boundary. A call is spent only when you ask for a home
+   by hand; the scan and page loads never make one.
+5. Verify: on a listing detail page click **Fetch paid estimates**, or run
+   `hb pipeline enrich --property-id <id> --rentcast`; a RentCast row appears in the
+   estimates panel and the quota decrements.
 
 ## Zillow / Zestimate (optional, via RapidAPI)
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   calcAffordability,
   enrichProperty,
@@ -29,14 +29,14 @@ import ContactPanel from "../components/ContactPanel";
 import ExtLink from "../components/ExtLink";
 import HazardChips from "../components/HazardChips";
 import ListingBadges from "../components/ListingBadges";
-import OverbidHistogram from "../components/OverbidHistogram";
 import PhotoGallery from "../components/PhotoGallery";
 import PostureBadge, { SIGNAL_WHY, postureExplanation } from "../components/PostureBadge";
+import SaleVsAskBar from "../components/SaleVsAskBar";
 import SchoolRatings from "../components/SchoolRatings";
 import TourPanel from "../components/TourPanel";
 import VerdictCard from "../components/VerdictCard";
 import type { PostureOut } from "../api/client";
-import { money, openHouseWindow, pct } from "../lib/format";
+import { money, openHouseWindow, vsAsking } from "../lib/format";
 
 const EVENT_LABEL: Record<string, string> = {
   new: "Listed", price_change: "Price change", pending: "Pending",
@@ -124,11 +124,9 @@ export default function ListingDetail() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                A model estimate of the <b>final sale price</b> — a backtest-tuned blend of the
-                comparable-sales CMA (~20%) and the list-anchored overbid model (~80%: the list
-                price × the recent sale-to-list ratio of similar nearby homes), pulled toward list
-                when a home has lingered unsold. Not an appraisal — see the Overbid and CMA panels
-                below for the underlying evidence.
+Best guess at the <b>final sale price</b>: about 80% the sale-vs-asking pattern
+                and 20% comparable sales (both below), pulled toward asking when a home has
+                sat unsold. Not an appraisal.
               </p>
             </div>
           )}
@@ -210,18 +208,19 @@ export default function ListingDetail() {
       {/* pricing posture (docs/06 §5.6) */}
       <PosturePanel posture={d.posture_detail} listPrice={d.list_price} />
 
-      {/* overbid + AVM spread panels */}
+      {/* sale-vs-asking + other-estimates panels */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <OverbidPanel listingId={d.id}
+        <OverbidPanel listingId={d.id} currentListPrice={d.list_price}
                       rejectionWeight={d.predicted_sale?.rejection_weight ?? 0} />
         <AvmSpreadPanel
           propertyId={d.property_id}
+          listPrice={d.list_price}
           snapshots={d.avm_snapshots}
           onRefreshed={invalidate}
         />
       </div>
 
-      {/* CMA workbench — embedded full-width */}
+      {/* value from comparable sales (the CMA workbench) — embedded full-width */}
       <CmaWorkbench propertyId={d.property_id} />
 
       {/* affordability + schools */}
@@ -483,6 +482,21 @@ const rowKey = (label: string, date: string, price: number | null) => {
   return norm === "price change" ? `${norm}|${price}` : `${norm}|${date}`;
 };
 
+// Where an event falls within its day, oldest first. Realtor stores history
+// newest-first but leaves same-day pairs in arbitrary order — a relist logs the
+// prior listing's "Listing removed" on the new "Listed" date, and read in
+// Realtor's order the active home looks pulled.
+const dayOrder = (label: string) => {
+  const l = label.toLowerCase();
+  if (l.includes("removed") || l.includes("delisted") || l.includes("off market")) return 0;
+  if (l.includes("listed")) return 1;
+  if (l.includes("pending") || l.includes("contingent")) return 3;
+  if (l.includes("sold")) return 4;
+  return 2; // price changes and anything else
+};
+
+const isRent = (label: string) => label.toLowerCase().includes("rent");
+
 function TimelinePanel({
   priceHistory, sqft, yearBuilt, events, listingGroup,
 }: {
@@ -521,9 +535,10 @@ function TimelinePanel({
   const appKeys = new Set(appRows.map((r) => rowKey(r.label, r.date, r.price)));
   const rows: TimelineRow[] = priceHistory
     .filter((e) => !appKeys.has(rowKey(e.event, e.date, e.price)))
-    .map((e) => ({ date: e.date, label: e.event, price: e.price }))
+    // Realtor stores 0 for "no price" (rental removals); show nothing, not "$0"
+    .map((e) => ({ date: e.date, label: e.event, price: e.price || null }))
     .concat(appRows)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => b.date.localeCompare(a.date) || dayOrder(b.label) - dayOrder(a.label));
   if (yearBuilt && !rows.some((r) => r.label === "Built")) {
     rows.push({ date: String(yearBuilt), label: "Built", price: null });
   }
@@ -540,10 +555,12 @@ function TimelinePanel({
               <span className={e.price < e.old ? "text-red-600" : "text-emerald-600"}>
                 {money(e.old)} → {money(e.price)}
               </span>
+            ) : e.price != null && isRent(e.label) ? (
+              <span className="font-semibold">{money(e.price, false)}/mo</span>
             ) : (
               e.price != null && <span className="font-semibold">{money(e.price)}</span>
             )}
-            {e.price != null && sqft ? (
+            {e.price != null && sqft && !isRent(e.label) ? (
               <span className="text-xs text-slate-400">${Math.round(e.price / sqft)}/sqft</span>
             ) : null}
           </li>
@@ -665,7 +682,8 @@ function PosturePanel({ posture, listPrice }: { posture: PostureOut | null; list
             {posture.value_gap_pct < 0 ? "below" : "above"} the model's own value estimate.{" "}
           </>
         ) : null}
-        Value estimates (the CMA, the overbid model, outside AVMs) are shown elsewhere on this
+        Value estimates (comparable sales, sale price vs. asking, the websites' automated
+        estimates) are shown elsewhere on this
         page but do not feed this probability: once you know how long a home has sat, they do
         not predict whether it clears asking — lingering homes sold below asking at the same
         rate whether the estimate said they were cheap or dear. The market's behaviour is the
@@ -686,43 +704,56 @@ function PosturePanel({ posture, listPrice }: { posture: PostureOut | null; list
   );
 }
 
-function OverbidPanel({ listingId, rejectionWeight }: { listingId: string; rejectionWeight: number }) {
+function OverbidPanel({ listingId, currentListPrice, rejectionWeight }: {
+  listingId: string;
+  currentListPrice: number | null;
+  rejectionWeight: number;
+}) {
   const q = useQuery({ queryKey: ["overbid", listingId], queryFn: () => getOverbid(listingId) });
   const d = q.data;
+  // the model scales from the price the home was first listed at
+  const repriced = d?.list_price != null && currentListPrice != null
+    && d.list_price !== currentListPrice;
   return (
     <section className={CARD}>
-      <h2 className={H2}>Overbid model</h2>
+      <h2 className={H2}>Sale price vs. asking — homes like this</h2>
       {q.isLoading && <p className="text-sm text-slate-400">…</p>}
       {d && d.n_comps === 0 && (
-        <p className="text-sm text-slate-400">Not enough recent comps to model a sale range yet.</p>
+        <p className="text-sm text-slate-400">
+          Not enough similar recent sales yet.
+        </p>
       )}
-      {d && d.n_comps > 0 && d.predicted && (
+      {d && d.n_comps > 0 && d.predicted && d.p50 != null && (
         <>
-          <p className="text-sm">
-            <span className="text-lg font-bold">
-              {money(d.predicted.low)} – {money(d.predicted.high)}
-            </span>{" "}
-            <span className="text-slate-500">
-              median {pct(d.p50, 1)} of {money(d.list_price)} list · n={d.n_comps} {d.basis}
-            </span>
+          <p className="text-sm text-slate-700">
+            Similar homes typically sold{" "}
+            <span className="text-lg font-bold text-slate-900">{vsAsking(d.p50)}</span>.
           </p>
-          <div className="mt-2">
-            <OverbidHistogram overbid={d} />
+          <p className="mt-1 text-sm text-slate-700">
+            At this home's {repriced ? "original " : ""}{money(d.list_price)} asking: about{" "}
+            <b>{money(d.predicted.point)}</b>, likely {money(d.predicted.low)} –{" "}
+            {money(d.predicted.high)}.
+          </p>
+          <div className="mt-3">
+            <SaleVsAskBar overbid={d} />
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            {d.basis === "stale" ? "Stale" : "Fresh"} distribution — {d.basis_reason} ·{" "}
-            {d.window_days}-day window.
+          <p className="mt-2 text-xs text-slate-500">
+            Similar = same ZIP (or city), last {d.window_days} days, asked within 30% of this
+            price, ±1 bedroom;{" "}
+            {d.basis === "stale"
+              ? `homes that needed a price cut or relisting, since this one ${
+                  d.basis_reason === "price cut" ? "had a cut" : "has sat longer than usual"}.`
+              : "homes that sold without a price cut, since this listing is fresh."}
           </p>
           {rejectionWeight > 0 && (
             <p className="mt-1 text-xs text-slate-500">
-              Range shown is pre-adjustment — prolonged exposure pulls the served
-              value lower (see Pricing posture).
+              Before time on market is counted — see Pricing posture.
             </p>
           )}
           {d.atypical_pricing && (
             <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
-              ⚠ List price is atypical for this home — the ratio and the CMA disagree;
-              see the posture panel for which evidence to trust.
+              ⚠ More than 7% off the comparable-sales value — the asking price may be set
+              deliberately low or high.
             </p>
           )}
         </>
@@ -733,15 +764,30 @@ function OverbidPanel({ listingId, rejectionWeight }: { listingId: string; rejec
 
 function AvmSpreadPanel({
   propertyId,
+  listPrice,
   snapshots,
   onRefreshed,
 }: {
   propertyId: string;
+  listPrice: number | null;
   snapshots: AvmSnapshotOut[];
   onRefreshed: () => void;
 }) {
   const qc = useQueryClient();
   const [quota, setQuota] = useState<number | null>(null);
+  // the free estimates are fetched by the page itself, once per property per
+  // session (the server skips the call when today's is already stored)
+  const auto = useQuery({
+    queryKey: ["auto-enrich", propertyId],
+    queryFn: () => enrichProperty(propertyId, true),
+    staleTime: Infinity,
+    retry: false,
+  });
+  useEffect(() => {
+    if (auto.dataUpdatedAt) onRefreshed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto.dataUpdatedAt]);
+  // pay-per-call sources (RentCast, Zestimate) are never spent without a click
   const enrich = useMutation({
     mutationFn: () => enrichProperty(propertyId),
     onSuccess: (r) => {
@@ -752,22 +798,34 @@ function AvmSpreadPanel({
   });
   return (
     <section className={CARD}>
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className={H2 + " mb-0"}>AVM spread</h2>
-        <button
-          onClick={() => enrich.mutate()}
-          disabled={enrich.isPending}
-          className="rounded border border-slate-300 px-2 py-0.5 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
-        >
-          {enrich.isPending ? "Refreshing…" : "Refresh estimates"}
-        </button>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className={H2 + " mb-0"}>Do the value estimates agree?</h2>
+        {auto.isFetching && <span className="text-xs text-slate-400">Fetching estimates…</span>}
+        {auto.data?.metered_configured && (
+          <button
+            onClick={() => enrich.mutate()}
+            disabled={enrich.isPending}
+            title="RentCast and Zestimate lookups are metered, so they run only when asked"
+            className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+          >
+            {enrich.isPending ? "Fetching…" : "Fetch paid estimates"}
+          </button>
+        )}
       </div>
-      <AvmSpreadBar snapshots={snapshots} />
+      <p className="mb-3 text-xs text-slate-500">
+        Automated estimates (<b>AVMs</b>, like the Zestimate) next to this app's own. The{" "}
+        <b>spread</b> is the gap between them: small means the value is well pinned down.
+      </p>
+      <AvmSpreadBar snapshots={snapshots} listPrice={listPrice} />
       {quota != null && (
-        <p className="mt-2 text-xs text-slate-400">RentCast quota remaining: {quota}</p>
+        <p className="mt-2 text-xs text-slate-400">
+          RentCast lookups left: {quota}
+        </p>
       )}
       {enrich.isError && (
-        <p className="mt-2 text-xs text-red-500">Enrich failed — check API keys / network.</p>
+        <p className="mt-2 text-xs text-red-500">
+          Refresh failed — check API keys and network.
+        </p>
       )}
     </section>
   );

@@ -1,8 +1,24 @@
 export function money(v: number | null | undefined, compact = true): string {
   if (v == null) return "—";
-  if (compact && Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  // 999,500+ rounds to "$1000k", so it switches to millions there, not at 1,000,000
+  if (compact && Math.abs(v) >= 999_500) return `$${(v / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(v) >= 1_000) return `$${Math.round(v / 1_000)}k`;
   return `$${Math.round(v).toLocaleString()}`;
+}
+
+/** A dollar change with its sign spelled out: "+$15k", "−$149k", "$0". */
+export function signedMoney(v: number, compact = true): string {
+  if (v === 0) return "$0";
+  return `${v > 0 ? "+" : "−"}${money(Math.abs(v), compact)}`;
+}
+
+/** A sale-to-asking ratio in words: 1.12 -> "12% over asking", 0.973 -> "2.7% under
+ *  asking", within half a percent either way -> "right at asking". */
+export function vsAsking(ratio: number): string {
+  const d = (ratio - 1) * 100;
+  if (Math.abs(d) < 0.5) return "right at asking";
+  const n = Math.abs(d) >= 10 ? Math.abs(d).toFixed(0) : Math.abs(d).toFixed(1).replace(/\.0$/, "");
+  return `${n}% ${d > 0 ? "over" : "under"} asking`;
 }
 
 export function pct(v: number | null | undefined, digits = 1): string {

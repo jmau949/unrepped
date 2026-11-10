@@ -205,7 +205,8 @@ def _sleep() -> None:
     time.sleep(random.uniform(1.0, 1.5))  # ≥1s jittered between external calls
 
 
-def _apply_realtor(session: Session, prop: Property, rf: dict, today: str) -> int:
+def _apply_realtor(session: Session, prop: Property, rf: dict, today: str,
+                   photos: bool = True) -> int:
     saved = 0
     fillable = rf.get("property") or {}
     for field in ("beds", "baths", "sqft", "lot_sqft", "year_built"):
@@ -216,7 +217,8 @@ def _apply_realtor(session: Session, prop: Property, rf: dict, today: str) -> in
         .order_by(Listing.first_seen.desc()).limit(1)
     ).scalar_one_or_none()
     key = listing.id if listing else prop.id
-    saved = _download_gallery(session, prop, key, rf.get("photo_urls") or [], listing)
+    if photos:
+        saved = _download_gallery(session, prop, key, rf.get("photo_urls") or [], listing)
     if rf.get("estimate"):
         _snapshot(session, prop.id, "realtor_estimate", rf["estimate"],
                   rf.get("low"), rf.get("high"), today)
@@ -282,13 +284,25 @@ def _apply_rentcast(session: Session, prop: Property, rc: dict, today: str,
 
 # --- per-property enrichment -------------------------------------------------
 
+def metered_configured() -> bool:
+    """True when a pay-per-call source (RentCast, the Zillow wrapper) is set up."""
+    return bool(settings.rentcast_api_key
+                or (settings.zillow_wrapper_enabled and settings.rapidapi_key))
+
+
 def enrich_one(session: Session, prop: Property, errors: list[str],
-               new_sale_ids: set | None = None, skips: list[str] | None = None) -> None:
+               new_sale_ids: set | None = None, skips: list[str] | None = None,
+               metered: bool = True, rentcast: bool = False) -> None:
     """Enrich a single property across all sources. Each source is isolated;
     real failures append to `errors` (recorded misses) and the next source runs.
     Config refusals (an optional source left unconfigured or over budget) are not
     failures — they go to `skips` when the caller provides one, so they never flip
-    a run to ``failed``; otherwise they fall back to `errors`."""
+    a run to ``failed``; otherwise they fall back to `errors`. ``metered=False``
+    is the page-load path: the free Realtor.com estimate and details alone — no
+    RentCast or Zillow call to spend, and no gallery download to wait on. RentCast
+    is called only with ``rentcast=True`` — the buyer asking for that home by
+    hand — because every call comes out of a small monthly allowance; no
+    automatic pass (the scan's tracked homes, a page load) ever spends one."""
     address = _address(prop)
     today = date.today().isoformat()
     refusals = skips if skips is not None else errors
@@ -296,12 +310,16 @@ def enrich_one(session: Session, prop: Property, errors: list[str],
     try:
         rf = fetch_realtor_estimate(address, mpr_id=realtor_gql.mpr_id_for(prop))
         if rf:
-            _apply_realtor(session, prop, rf, today)
+            _apply_realtor(session, prop, rf, today, photos=metered)
     except Exception as exc:  # noqa: BLE001
         errors.append(f"realtor {prop.id}: {exc}")
+    if not metered:
+        return
     _sleep()
 
-    if rentcast_remaining(session) <= 0:
+    if not rentcast:
+        pass  # not asked for by hand: no call, nothing to report
+    elif rentcast_remaining(session) <= 0:
         refusals.append(f"rentcast {prop.id}: monthly budget exhausted")  # clean refusal, no call
     elif not settings.rentcast_api_key:
         refusals.append(f"rentcast {prop.id}: no API key")
@@ -347,7 +365,8 @@ def enrich_tracked(session: Session, new_sale_ids: set | None = None) -> int:
     return len(prop_ids)
 
 
-def run(engine=None, property_id: str | None = None, all_tracked: bool = False) -> str:
+def run(engine=None, property_id: str | None = None, all_tracked: bool = False,
+        metered: bool = True, rentcast: bool = False) -> str:
     with JobRunner("enrich", engine) as runner:
         session = make_session(runner.engine)
         try:
@@ -371,7 +390,8 @@ def run(engine=None, property_id: str | None = None, all_tracked: bool = False) 
                         raise ValueError(f"unknown property {pid}")
                     errors: list[str] = []
                     skips: list[str] = []
-                    enrich_one(session, prop, errors, new_sale_ids, skips=skips)
+                    enrich_one(session, prop, errors, new_sale_ids, skips=skips,
+                               metered=metered, rentcast=rentcast)
                     runner.errors.extend(errors)  # real failures only — drive run status
                     for s in skips:  # config refusals: logged, never fail the run
                         log.info("enrich skip: %s", s)

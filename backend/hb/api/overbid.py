@@ -26,5 +26,5 @@ def get_overbid(listing_id: str) -> dict:
             "n_eff": result.n_eff, "window_days": result.window_days,
             "p25": result.p25, "p50": result.p50, "p75": result.p75,
             "predicted": result.predicted, "atypical_pricing": result.atypical_pricing,
-            "histogram": result.histogram, "comps": result.comps,
+            "comps": result.comps,
         }

@@ -50,7 +50,6 @@ class OverbidResult:
     p75: float | None
     predicted: dict | None  # {low, point, high}
     atypical_pricing: bool
-    histogram: list[dict] = field(default_factory=list)
     comps: list[dict] = field(default_factory=list)
 
 
@@ -201,11 +200,6 @@ def predict(session: Session, listing: Listing, prop: Property,
                  "high": round(anchor * p75 * (1 + RANGE_WIDEN))}
     atypical = bool(cma_estimate and abs(predicted["point"] - cma_estimate) / cma_estimate > ATYPICAL_PCT)
 
-    weights = [0.5 ** (c["days_ago"] / WEIGHT_HALF_LIFE_DAYS) for c in chosen]
-    histogram = [
-        {"bucket_low": round(lo, 4), "bucket_high": round(hi, 4), "weight": round(w, 4)}
-        for lo, hi, w in stats.weighted_histogram([c["sp_lp"] for c in chosen], weights, bins=8)
-    ]
     comps = [
         {"address": c["address"], "sale_date": c["sale_date"], "sp_lp": c["sp_lp"],
          "original_list_price": c["original_list_price"], "sale_price": c["sale_price"]}
@@ -216,5 +210,5 @@ def predict(session: Session, listing: Listing, prop: Property,
         list_price=anchor, basis=basis, basis_reason=basis_reason, n_comps=len(chosen),
         n_eff=round(n_eff, 2), window_days=window, p25=round(p25, 4), p50=round(p50, 4),
         p75=round(p75, 4), predicted=predicted, atypical_pricing=atypical,
-        histogram=histogram, comps=comps,
+        comps=comps,
     )

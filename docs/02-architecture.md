@@ -161,7 +161,7 @@ unrepped/
 │       │                         #   Affordability, Alerts, Supply, DataLog, Field, Prep, Closing, OpenHouses
 │       ├── components/           # shared: Layout, MetricTile, ListingBadges, PostureBadge, HazardChips, SchoolRatings,
 │       │                         #   MapView, LazyMapView, CmaMap, CmaWorkbench, AvmSpreadBar, AdjustmentGrid,
-│       │                         #   OverbidHistogram, VerdictCard, PhotoGallery, ContactPanel, TourPanel, MoneyInput,
+│       │                         #   SaleVsAskBar, VerdictCard, PhotoGallery, ContactPanel, TourPanel, MoneyInput,
 │       │                         #   RateChart, SeriesExplorer, ZipTable,
 │       │                         #   MarkdownGuide (the pack's closing playbook from /api/guide/closing)
 │       └── lib/                  # formatters (money, pct), config.ts (useConfig/useCities), chartColors.ts (the 8-slot

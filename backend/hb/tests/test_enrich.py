@@ -122,11 +122,11 @@ def test_run_path_fires_new_comp_sold(engine, session, monkeypatch, tmp_path):
     session.add(AppSetting(key="alert_rules", value={"new_comp_sold": {"enabled": True}}))
     session.commit()
 
-    assert enrich.run(engine, property_id=pid) == "ok"
+    assert enrich.run(engine, property_id=pid, rentcast=True) == "ok"
     alerts = session.execute(select(Alert).where(Alert.type == "new_comp_sold")).scalars().all()
     assert len(alerts) == 1
 
-    assert enrich.run(engine, property_id=pid) == "ok"  # re-run: dedup holds
+    assert enrich.run(engine, property_id=pid, rentcast=True) == "ok"  # re-run: dedup holds
     alerts = session.execute(select(Alert).where(Alert.type == "new_comp_sold")).scalars().all()
     assert len(alerts) == 1
 
@@ -169,12 +169,61 @@ def test_realtor_fills_nulls_and_snapshots(env, monkeypatch):
     monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: RENTCAST)
 
     errors: list[str] = []
-    enrich.enrich_one(env, prop, errors)
+    enrich.enrich_one(env, prop, errors, rentcast=True)
     env.commit()
 
     assert prop.beds == 3 and prop.sqft == 1600  # NULL-filled
     sources = {a.source for a in env.execute(select(AvmSnapshot)).scalars().all()}
     assert {"realtor_estimate", "rentcast"} <= sources
+
+
+def test_unmetered_run_never_calls_a_paid_source(env, monkeypatch):
+    """The page-load path (`metered=False`) fetches Realtor.com alone."""
+    prop = _property(env)
+    env.commit()
+    monkeypatch.setattr(enrich, "fetch_realtor_estimate", lambda a, mpr_id=None: REALTOR)
+
+    def paid(*_a, **_kw):
+        raise AssertionError("a metered source was called")
+
+    monkeypatch.setattr(enrich, "fetch_rentcast_avm", paid)
+    monkeypatch.setattr(enrich, "fetch_zestimate", paid)
+
+    errors: list[str] = []
+    enrich.enrich_one(env, prop, errors, metered=False)
+    env.commit()
+
+    assert errors == []
+    sources = {a.source for a in env.execute(select(AvmSnapshot)).scalars().all()}
+    assert sources == {"realtor_estimate"}
+    assert enrich.rentcast_remaining(env) == enrich.settings.rentcast_monthly_limit
+
+
+def test_rentcast_is_called_only_when_asked_for(env, monkeypatch):
+    """No automatic pass spends a RentCast call — not the default, not the scan's
+    tracked homes; only an explicit ``rentcast=True`` does."""
+    prop = _property(env)
+    lst = Listing(property_id=prop.id, source="realtor", source_listing_id="L9",
+                  status="active", list_price=2_000_000)
+    env.add(lst)
+    env.flush()
+    env.add(TrackedListing(listing_id=lst.id, stage="saved"))
+    env.commit()
+    calls = []
+    monkeypatch.setattr(enrich, "fetch_realtor_estimate", lambda a, mpr_id=None: None)
+    monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: calls.append(a) or RENTCAST)
+    limit = enrich.settings.rentcast_monthly_limit
+
+    enrich.enrich_one(env, prop, [])
+    enrich.enrich_tracked(env)
+    env.commit()
+    assert calls == []
+    assert enrich.rentcast_remaining(env) == limit
+
+    enrich.enrich_one(env, prop, [], rentcast=True)
+    env.commit()
+    assert len(calls) == 1
+    assert enrich.rentcast_remaining(env) == limit - 1
 
 
 def test_d13_one_snapshot_per_source_per_day(env, monkeypatch):
@@ -185,7 +234,7 @@ def test_d13_one_snapshot_per_source_per_day(env, monkeypatch):
 
     for _ in range(2):  # same day, twice
         errors: list[str] = []
-        enrich.enrich_one(env, prop, errors)
+        enrich.enrich_one(env, prop, errors, rentcast=True)
         env.commit()
 
     for source in ("realtor_estimate", "rentcast"):
@@ -203,7 +252,7 @@ def test_rentcast_comps_land_as_sales(env, monkeypatch):
     monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: RENTCAST)
 
     errors: list[str] = []
-    enrich.enrich_one(env, prop, errors)
+    enrich.enrich_one(env, prop, errors, rentcast=True)
     env.commit()
 
     sale = env.execute(select(Sale).where(Sale.source == "rentcast")).scalar_one()
@@ -224,7 +273,7 @@ def test_budget_guard_refuses_without_calling(env, monkeypatch):
     monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: calls.append(a) or RENTCAST)
 
     errors: list[str] = []
-    enrich.enrich_one(env, prop, errors)
+    enrich.enrich_one(env, prop, errors, rentcast=True)
     assert calls == []  # exhausted budget -> no call
     assert any("budget exhausted" in e for e in errors)
     assert enrich.rentcast_remaining(env) == 0
@@ -241,7 +290,7 @@ def test_realtor_failure_records_miss_and_continues(env, monkeypatch):
     monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: RENTCAST)
 
     errors: list[str] = []
-    enrich.enrich_one(env, prop, errors)
+    enrich.enrich_one(env, prop, errors, rentcast=True)
     env.commit()
     assert any("realtor" in e for e in errors)
     # rentcast still ran despite redfin failing

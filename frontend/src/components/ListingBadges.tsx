@@ -52,7 +52,7 @@ export default function ListingBadges({
       )}
       {l.predicted_sale && !hidePredicted && (
         <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-medium text-white"
-              title="predicted sale price (blended CMA + overbid model)">
+              title="predicted sale price">
           ~${(l.predicted_sale.point / 1_000_000).toFixed(2)}M
         </span>
       )}

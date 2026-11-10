@@ -183,6 +183,8 @@ def pipeline_hazards_fetch(
 def pipeline_enrich(
     property_id: str = typer.Option(None, "--property-id", help="enrich one property"),
     all_tracked: bool = typer.Option(False, "--all-tracked", help="enrich all tracked listings"),
+    rentcast: bool = typer.Option(False, "--rentcast",
+                                  help="also spend one metered RentCast call per property"),
 ) -> None:
     """Enrich a property (or all tracked) via Realtor.com/RentCast/Zestimate."""
     from hb.pipelines import enrich
@@ -190,7 +192,7 @@ def pipeline_enrich(
     if not property_id and not all_tracked:
         all_tracked = True  # default: refresh the tracked set
     _ready_db()
-    status = enrich.run(property_id=property_id, all_tracked=all_tracked)
+    status = enrich.run(property_id=property_id, all_tracked=all_tracked, rentcast=rentcast)
     typer.echo(f"enrich: {status}")
     if status == "failed":
         raise typer.Exit(1)

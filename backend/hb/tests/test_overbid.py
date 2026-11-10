@@ -110,7 +110,6 @@ def test_predict_fresh_basis(session):
     assert 2_150_000 < result.predicted["point"] < 2_400_000
     assert result.predicted["low"] <= result.predicted["point"] <= result.predicted["high"]
     assert result.atypical_pricing is False
-    assert sum(h["weight"] for h in result.histogram) > 0
 
 
 def test_routing_to_stale_on_price_cut(session):

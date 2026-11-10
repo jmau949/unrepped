@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
@@ -463,15 +464,25 @@ def patch_listing(listing_id: str, patch: ListingPatch) -> dict:
 
 
 @router.post("/properties/{property_id}/enrich")
-def enrich_property(property_id: str) -> dict:
-    """Trigger the enrich pipeline inline for one property (docs/07 §Listings)."""
+def enrich_property(property_id: str, auto: bool = False) -> dict:
+    """Trigger the enrich pipeline inline for one property (docs/07 §Listings).
+    ``auto`` is the listing page's own call on load: the free source only, and
+    nothing at all when today's Realtor.com estimate is already stored."""
     from hb.pipelines import enrich
 
     with make_session() as session:
         if session.get(Property, property_id) is None:
             raise HTTPException(404, "property not found")
         bind = session.get_bind()
-    enrich.run(engine=bind, property_id=property_id)
+        fresh = auto and session.execute(
+            select(AvmSnapshot.id).where(
+                AvmSnapshot.property_id == property_id,
+                AvmSnapshot.source == "realtor_estimate",
+                AvmSnapshot.as_of == date.today().isoformat(),
+            ).limit(1)
+        ).first() is not None
+    if not fresh:
+        enrich.run(engine=bind, property_id=property_id, metered=not auto, rentcast=not auto)
     with make_session() as session:
         avms = session.execute(
             select(AvmSnapshot).where(AvmSnapshot.property_id == property_id)
@@ -487,6 +498,7 @@ def enrich_property(property_id: str) -> dict:
                 for a in latest.values()
             ],
             "rentcast_quota_remaining": enrich.rentcast_quota(session),
+            "metered_configured": enrich.metered_configured(),
         }
 
 
