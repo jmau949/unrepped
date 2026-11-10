@@ -7,7 +7,8 @@ continues:
    `avm_snapshots(source='realtor_estimate')`. (Replaced Redfin, whose stingray
    API now sits behind AWS WAF and 403s every request.)
 2. **RentCast** (needs `RENTCAST_API_KEY`, budget-guarded): `/avm/value` →
-   `avm_snapshots(source='rentcast')` + returned comps as `sales(source='rentcast')`.
+   `avm_snapshots(source='rentcast')`. The comparables in the response are sale
+   *listings* at their asking prices, so none of them is stored as a sale.
 3. **Zestimate** (optional, behind `ZILLOW_WRAPPER_ENABLED` + `RAPIDAPI_KEY`).
 
 Snapshots key on `(property_id, source, as_of=today)` so a same-day re-run is a
@@ -27,12 +28,11 @@ from sqlalchemy.orm import Session
 from hb.config import settings
 from hb.db.engine import make_session
 from hb.db.models import (
-    AppSetting, AvmSnapshot, Listing, Property, Sale, TrackedListing, utcnow_iso,
+    AppSetting, AvmSnapshot, Listing, Property, TrackedListing, utcnow_iso,
 )
 from hb.db.upsert import upsert
 from hb.pipelines import realtor_gql
 from hb.pipelines.base import JobRunner
-from hb.pipelines.resolve import resolve
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +90,9 @@ def fetch_realtor_estimate(address: str, mpr_id: str | None = None) -> dict | No
 
 def fetch_rentcast_avm(address: str) -> dict | None:
     """RentCast `/avm/value` (needs `RENTCAST_API_KEY`). Returns
-    ``{value, low, high, comps:[{...}]}``. Raises on error."""
+    ``{value, low, high}``. Raises on error. The response's `comparables` are
+    listings whose `price` is an asking price (and `removedDate` the day the
+    listing came down, not a closing), so they are not read."""
     resp = httpx.get(
         "https://api.rentcast.io/v1/avm/value",
         params={"address": address},
@@ -99,28 +101,8 @@ def fetch_rentcast_avm(address: str) -> dict | None:
     )
     resp.raise_for_status()
     data = resp.json()
-    comps = []
-    for c in data.get("comparables", []):
-        # Only verifiably CLOSED comparables become Sale rows. An active listing
-        # has no removedDate — falling back to lastSeenDate/listedDate fabricated
-        # "sales" at asking price that polluted the CMA comp pool and fired false
-        # new_comp_sold alerts.
-        status = str(c.get("status") or "").lower()
-        if status and status not in ("sold", "inactive"):
-            continue
-        sale_date = c.get("removedDate")
-        if not (sale_date and c.get("price")):
-            continue
-        comps.append({
-            "sale_date": sale_date[:10], "sale_price": int(c["price"]),
-            "address": c.get("formattedAddress", ""), "city": c.get("city"),
-            "state": c.get("state") or settings.geo.state, "zip": str(c.get("zipCode", "")),
-            "lat": c.get("latitude"), "lon": c.get("longitude"),
-            "beds": c.get("bedrooms"), "baths": c.get("bathrooms"),
-            "sqft": c.get("squareFootage"),
-        })
     return {"value": int(data["price"]), "low": data.get("priceRangeLow"),
-            "high": data.get("priceRangeHigh"), "comps": comps}
+            "high": data.get("priceRangeHigh")}
 
 
 def fetch_zestimate(address: str) -> dict | None:
@@ -256,32 +238,6 @@ def _sleep_photo() -> None:
     time.sleep(random.uniform(0.3, 0.6))
 
 
-def _apply_rentcast(session: Session, prop: Property, rc: dict, today: str,
-                    new_sale_ids: set | None = None) -> int:
-    _snapshot(session, prop.id, "rentcast", rc["value"], rc.get("low"), rc.get("high"), today)
-    comps_added = 0
-    for comp in rc.get("comps", []):
-        if not comp.get("zip") or not comp.get("sale_date"):
-            continue
-        record = {
-            "street": comp.get("address", ""), "city": comp.get("city"),
-            "state": comp.get("state") or settings.geo.state, "zip": str(comp["zip"]),
-            "lat": comp.get("lat"), "lon": comp.get("lon"), "beds": comp.get("beds"),
-            "baths": comp.get("baths"), "sqft": comp.get("sqft"),
-            "property_type": "single_family",
-        }
-        comp_pid, _ = resolve(session, record, source="rentcast")
-        sale_row, changed = upsert(session, Sale,
-                                   {"property_id": comp_pid, "sale_date": comp["sale_date"],
-                                    "sale_price": comp["sale_price"], "source": "rentcast"},
-                                   ["property_id", "sale_date"])
-        if changed:
-            comps_added += 1
-            if new_sale_ids is not None:
-                new_sale_ids.add(sale_row.id)
-    return comps_added
-
-
 # --- per-property enrichment -------------------------------------------------
 
 def metered_configured() -> bool:
@@ -291,7 +247,7 @@ def metered_configured() -> bool:
 
 
 def enrich_one(session: Session, prop: Property, errors: list[str],
-               new_sale_ids: set | None = None, skips: list[str] | None = None,
+               skips: list[str] | None = None,
                metered: bool = True, rentcast: bool = False) -> None:
     """Enrich a single property across all sources. Each source is isolated;
     real failures append to `errors` (recorded misses) and the next source runs.
@@ -327,7 +283,8 @@ def enrich_one(session: Session, prop: Property, errors: list[str],
         try:
             rc = fetch_rentcast_avm(address)
             if rc:
-                _apply_rentcast(session, prop, rc, today, new_sale_ids)
+                _snapshot(session, prop.id, "rentcast", rc["value"], rc.get("low"),
+                          rc.get("high"), today)
                 _spend_rentcast(session)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"rentcast {prop.id}: {exc}")
@@ -343,10 +300,9 @@ def enrich_one(session: Session, prop: Property, errors: list[str],
             errors.append(f"zestimate {prop.id}: {exc}")
 
 
-def enrich_tracked(session: Session, new_sale_ids: set | None = None) -> int:
+def enrich_tracked(session: Session) -> int:
     """Enrich every actively-tracked property once (daily auto-enrich inside the
-    scan run). Returns the number of properties enriched. `new_sale_ids`
-    collects RentCast comp sales so the scan's new_comp_sold rule sees them."""
+    scan run). Returns the number of properties enriched."""
     prop_ids = session.execute(
         select(Property.id)
         .join(Listing, Listing.property_id == Property.id)
@@ -358,7 +314,7 @@ def enrich_tracked(session: Session, new_sale_ids: set | None = None) -> int:
     for pid in prop_ids:
         prop = session.get(Property, pid)
         if prop is not None:
-            enrich_one(session, prop, errors, new_sale_ids)
+            enrich_one(session, prop, errors)
     session.commit()
     for e in errors:
         log.info("enrich miss: %s", e)
@@ -382,7 +338,6 @@ def run(engine=None, property_id: str | None = None, all_tracked: bool = False,
             else:
                 log.warning("enrich called without --property-id or --all-tracked: no-op")
                 targets = []
-            new_sale_ids: set[str] = set()
             for pid in targets:
                 with runner.item(pid):
                     prop = session.get(Property, pid)
@@ -390,22 +345,13 @@ def run(engine=None, property_id: str | None = None, all_tracked: bool = False,
                         raise ValueError(f"unknown property {pid}")
                     errors: list[str] = []
                     skips: list[str] = []
-                    enrich_one(session, prop, errors, new_sale_ids, skips=skips,
+                    enrich_one(session, prop, errors, skips=skips,
                                metered=metered, rentcast=rentcast)
                     runner.errors.extend(errors)  # real failures only — drive run status
                     for s in skips:  # config refusals: logged, never fail the run
                         log.info("enrich skip: %s", s)
                     session.commit()
                     runner.items_upserted += 1
-
-            # RentCast comps created outside the scan must still drive the
-            # new_comp_sold rule — dedup keys make this safe
-            if new_sale_ids:
-                from hb.alerts import rules
-                from hb.db.models import utcnow_iso
-
-                rules.evaluate(session, [], utcnow_iso(), new_sale_ids=new_sale_ids)
-                session.commit()
         finally:
             session.close()
     return runner.status

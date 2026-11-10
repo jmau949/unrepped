@@ -201,7 +201,7 @@ class Sale(Base):
     dom: Mapped[int | None]
     cumulative_dom: Mapped[int | None]
     had_price_cut: Mapped[bool] = mapped_column(default=False)
-    source: Mapped[str] = mapped_column(default="realtor_sold_scan")  # | rentcast | manual | assessor
+    source: Mapped[str] = mapped_column(default="realtor_sold_scan")  # | manual | assessor
 
 
 class MarketMetric(Base):

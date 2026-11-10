@@ -75,8 +75,8 @@ def _watched_status(p: dict, addr: str) -> str:
 
 
 def _new_comp_sold(p: dict, addr: str) -> str:
-    """`addr` is the tracked home; the comp lives in the payload. RentCast comps
-    carry no DOM (0), so the figure is shown only when the scan supplied one."""
+    """`addr` is the tracked home; the comp lives in the payload. A sale with no
+    DOM (0) shows no DOM figure."""
     detail = [f"${p.get('price') or 0:,}"]
     if p.get("ppsf"):
         detail.append(f"${p['ppsf']:,}/sqft")

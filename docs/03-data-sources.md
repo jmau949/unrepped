@@ -63,9 +63,9 @@ Every source the platform uses: access method, exact locations, schedule, cost, 
 
 ## 3. Paid / freemium APIs
 
-### 3.1 RentCast API — per-property AVM + comps (the paid core)
+### 3.1 RentCast API — per-property AVM (the paid core)
 - **What**: property records (characteristics, tax history), **value estimate AVM with the comps used returned in the same response**, rent AVM, active listings, ZIP market stats.
-- **Auth**: `X-Api-Key` header (`RENTCAST_API_KEY`). Base `https://api.rentcast.io/v1/`. The only endpoint called is `/avm/value?address=...` (`enrich.py` `fetch_rentcast_avm`): the value estimate plus the comps it was built from, persisted as `avm_snapshots(source='rentcast')` and `sales(source='rentcast')`.
+- **Auth**: `X-Api-Key` header (`RENTCAST_API_KEY`). Base `https://api.rentcast.io/v1/`. The only endpoint called is `/avm/value?address=...` (`enrich.py` `fetch_rentcast_avm`): the value estimate and its range, persisted as `avm_snapshots(source='rentcast')`. The `comparables` in the same response are **sale listings, not sales**: `price` is "the listed price" and `removedDate` the day the listing came down, some are still `Active`, and no closing price is given — checked against recorded sales of the same homes, `price` equalled the original list price every time while the real closing price ran from 1.6% under to 19.8% over, weeks later. They are therefore never stored as `sales`; the estimate itself is a weighted average of those asking prices, which reads low wherever homes sell over asking.
 - **Pricing**: **Developer tier free, 50 requests/mo** → Foundation **$74/mo, 1,000 req**. Plan: free tier (user-triggered enrichment only); upgrade during an active hunt, cancel after closing.
 - **Budget guard**: `rentcast_budget` counter in DB; refuse calls beyond `RENTCAST_MONTHLY_LIMIT` (default 45 on free tier) and surface remaining quota in the UI. Requests past the plan's allowance are billed per call by RentCast, so the limit stays under the allowance.
 - **Spent by hand only**: a RentCast call is made only when the buyer asks for one home — the listing page's "Fetch paid estimates" button, or `hb pipeline enrich --property-id X --rentcast`. No automatic pass calls it: not the scan's daily enrich of tracked homes, not a listing-page load (`enrich_one(rentcast=False)` is the default).

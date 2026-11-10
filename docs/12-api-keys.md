@@ -12,7 +12,7 @@ enough sales history for the golden backtest to run. All keys go in a single
 |---|---|---|---|---|
 | **Realtor.com** | *(none)* | free, no key | enrich: home-value estimate, details, gallery photos; `price-history`: sale/listing price history | yes — network only |
 | **FRED** | `FRED_API_KEY` | free | `hb pipeline fred` (mortgage-rate chart, affordability) | yes — run recorded as `noop`; affordability and offer math assume 6.5% |
-| **RentCast** | `RENTCAST_API_KEY`, `RENTCAST_MONTHLY_LIMIT` | free tier 50/mo | enrich: RentCast AVM + comps | yes — recorded miss, run continues |
+| **RentCast** | `RENTCAST_API_KEY`, `RENTCAST_MONTHLY_LIMIT` | free tier 50/mo | enrich: RentCast AVM | yes — recorded miss, run continues |
 | **Zillow (RapidAPI)** | `ZILLOW_WRAPPER_ENABLED`, `RAPIDAPI_KEY` | free tier varies | enrich: Zestimate (optional) | yes — skipped when disabled |
 | **SchoolDigger** | `SCHOOLDIGGER_APP_ID`, `SCHOOLDIGGER_APP_KEY`, `SCHOOLDIGGER_DAILY_LIMIT` | free developer plan, 20 calls/day | `hb pipeline schooldigger-ratings` (statewide school rankings on the Schools card) | yes — run recorded as `noop` |
 | **CAASPP** (California only) | `CAASPP_YEAR` | free, no key | `hb pipeline school-ratings` (state test-score decile, the `ca` pack's primary rating source) | yes — `noop` outside California |
@@ -55,9 +55,9 @@ Without a key the job logs a one-line hint and records a `noop` run, so `make da
 clean; the rate chart stays empty, there is no Case-Shiller series, and affordability and
 offer math use the buyer profile's rate if set, else 6.5%. `make setup` offers to save the key.
 
-## RentCast (AVM + comps)
+## RentCast (AVM)
 
-Used by enrich for a second AVM and to import comparable sales.
+Used by enrich for one more automated estimate on the estimates panel.
 
 1. Sign up at <https://app.rentcast.io/app/api>.
 2. The **Developer** (free) tier grants **50 requests/month** — no credit card.

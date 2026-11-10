@@ -20,29 +20,23 @@ class _FakeResp:
         return self._payload
 
 
-def test_rentcast_active_comparables_never_become_sales(monkeypatch):
-    """Only verifiably closed comparables (removedDate) may enter `sales` —
-    active listings at asking price were fabricated as comps."""
+def test_rentcast_fetch_reads_the_estimate_and_ignores_comparables(monkeypatch):
+    """RentCast comparables are listings at asking prices — the fetch returns the
+    value and its range, nothing else."""
     payload = {
         "price": 2_500_000, "priceRangeLow": 2_400_000, "priceRangeHigh": 2_600_000,
         "comparables": [
-            {"price": 2_600_000, "listedDate": "2026-07-01T00:00:00Z",
-             "lastSeenDate": "2026-07-10T00:00:00Z", "status": "Active",
+            {"price": 2_600_000, "listedDate": "2026-07-01T00:00:00Z", "status": "Active",
              "formattedAddress": "1 Active St", "zipCode": "94087"},
             {"price": 2_450_000, "removedDate": "2026-06-20T00:00:00Z",
              "status": "Inactive", "formattedAddress": "2 Closed Ave", "zipCode": "94087"},
-            {"price": 2_500_000, "removedDate": "2026-06-25T00:00:00Z",
-             "formattedAddress": "3 Sold Ct", "zipCode": "94087"},
-            {"price": 2_550_000, "listedDate": "2026-06-01T00:00:00Z",
-             "formattedAddress": "4 No Close Date Rd", "zipCode": "94087"},
         ],
     }
     monkeypatch.setattr(enrich.settings, "rentcast_api_key", "k")
     monkeypatch.setattr(enrich.httpx, "get", lambda *a, **kw: _FakeResp(payload))
 
-    out = enrich.fetch_rentcast_avm("x")
-    assert [c["address"] for c in out["comps"]] == ["2 Closed Ave", "3 Sold Ct"]
-    assert all(c["sale_date"] in ("2026-06-20", "2026-06-25") for c in out["comps"])
+    assert enrich.fetch_rentcast_avm("x") == {
+        "value": 2_500_000, "low": 2_400_000, "high": 2_600_000}
 
 
 def test_zestimate_percent_bounds_converted_to_dollars(monkeypatch):
@@ -94,43 +88,6 @@ def test_realtor_estimate_none_when_no_match(monkeypatch):
     assert enrich.fetch_realtor_estimate("nowhere") is None
 
 
-def test_run_path_fires_new_comp_sold(engine, session, monkeypatch, tmp_path):
-    """RentCast comps created via the CLI/API enrich path (not
-    the scan) must still drive the new_comp_sold rule, exactly once."""
-    from hb import config
-    from hb.db.models import Alert
-    from hb.pipelines.resolve import resolve
-
-    monkeypatch.setattr(config.settings, "data_dir", tmp_path)
-    monkeypatch.setattr(config.settings, "rentcast_api_key", "test-key")
-    monkeypatch.setattr(config.settings, "zillow_wrapper_enabled", False)
-    monkeypatch.setattr(enrich.time, "sleep", lambda *_: None)
-    monkeypatch.setattr(enrich, "fetch_realtor_estimate", lambda a, mpr_id=None: None)
-    monkeypatch.setattr(enrich, "fetch_rentcast_avm", lambda a: RENTCAST)
-
-    # tracked home near the RENTCAST comp (55 Comp Ln @ 37.351,-122.031)
-    pid, _ = resolve(session, {"street": "10 Subject St", "city": "Sunnyvale",
-                               "state": "CA", "zip": "94087", "lat": 37.3512,
-                               "lon": -122.0312, "beds": 3, "baths": 2.0, "sqft": 1600,
-                               "property_type": "single_family"})
-    lst = Listing(property_id=pid, source="realtor", source_listing_id="T1",
-                  status="active", list_price=2_300_000, original_list_price=2_300_000,
-                  list_date="2026-07-01")
-    session.add(lst)
-    session.flush()
-    session.add(TrackedListing(listing_id=lst.id))
-    session.add(AppSetting(key="alert_rules", value={"new_comp_sold": {"enabled": True}}))
-    session.commit()
-
-    assert enrich.run(engine, property_id=pid, rentcast=True) == "ok"
-    alerts = session.execute(select(Alert).where(Alert.type == "new_comp_sold")).scalars().all()
-    assert len(alerts) == 1
-
-    assert enrich.run(engine, property_id=pid, rentcast=True) == "ok"  # re-run: dedup holds
-    alerts = session.execute(select(Alert).where(Alert.type == "new_comp_sold")).scalars().all()
-    assert len(alerts) == 1
-
-
 @pytest.fixture
 def env(session, monkeypatch, tmp_path):
     from hb import config
@@ -155,11 +112,7 @@ def _property(session, **over):
 
 REALTOR = {"estimate": 2_250_000, "low": 2_100_000, "high": 2_400_000,
            "photo_urls": [], "property": {"beds": 3, "baths": 2.0, "sqft": 1600}}
-RENTCAST = {"value": 2_300_000, "low": 2_150_000, "high": 2_450_000,
-            "comps": [{"sale_date": "2026-06-15", "sale_price": 2_280_000,
-                       "address": "55 Comp Ln", "city": "Sunnyvale", "state": "CA",
-                       "zip": "94087", "lat": 37.351, "lon": -122.031, "beds": 3,
-                       "baths": 2.0, "sqft": 1580}]}
+RENTCAST = {"value": 2_300_000, "low": 2_150_000, "high": 2_450_000}
 
 
 def test_realtor_fills_nulls_and_snapshots(env, monkeypatch):
@@ -245,7 +198,7 @@ def test_d13_one_snapshot_per_source_per_day(env, monkeypatch):
         assert n == 1
 
 
-def test_rentcast_comps_land_as_sales(env, monkeypatch):
+def test_rentcast_writes_an_estimate_and_no_sales(env, monkeypatch):
     prop = _property(env)
     env.commit()
     monkeypatch.setattr(enrich, "fetch_realtor_estimate", lambda a, mpr_id=None: None)
@@ -255,8 +208,10 @@ def test_rentcast_comps_land_as_sales(env, monkeypatch):
     enrich.enrich_one(env, prop, errors, rentcast=True)
     env.commit()
 
-    sale = env.execute(select(Sale).where(Sale.source == "rentcast")).scalar_one()
-    assert sale.sale_date == "2026-06-15" and sale.sale_price == 2_280_000
+    snap = env.execute(select(AvmSnapshot).where(AvmSnapshot.source == "rentcast")).scalar_one()
+    assert (snap.value, snap.low, snap.high) == (2_300_000, 2_150_000, 2_450_000)
+    assert env.execute(select(func.count()).select_from(Sale)).scalar_one() == 0
+    assert env.execute(select(func.count()).select_from(Property)).scalar_one() == 1
 
 
 def test_budget_guard_refuses_without_calling(env, monkeypatch):

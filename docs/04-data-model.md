@@ -130,7 +130,7 @@ schools, school_districts (no FK to properties — school assignment is a spatia
 | dom | INTEGER NULL | source DOM |
 | cumulative_dom | INTEGER NULL | from listing_groups (scan, 05 §4.5) or the replayed Realtor timeline (05 §14) |
 | had_price_cut | INTEGER (bool) | feeds fresh/stale overbid split |
-| source | TEXT | `realtor_sold_scan` \| `rentcast` (`manual` and `assessor` are defined; nothing writes them) |
+| source | TEXT | `realtor_sold_scan` (`manual` and `assessor` are defined; nothing writes them) |
 
 **Unique key**: `(property_id, sale_date)`. **Indexes**: `(sale_date)`, and the comps query uses properties' `(zip)`/`(lat,lon)` via join.
 

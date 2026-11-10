@@ -86,8 +86,8 @@ def evaluate(session: Session, events: list[ListingEvent], observed_at: str,
              new_sale_ids: set[str] | None = None) -> int:
     """Insert alerts for this scan's events + time-based rules. Returns count.
 
-    `new_sale_ids` are the `sales` rows created this run (scan sold records +
-    enrich RentCast comps); they drive the `new_comp_sold` rule.
+    `new_sale_ids` are the `sales` rows created this run (the scan's sold
+    records); they drive the `new_comp_sold` rule.
     """
     rules = _rules(session)
     tracked = _tracked_listing_ids(session)

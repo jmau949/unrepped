@@ -650,11 +650,10 @@ def run(engine=None) -> str:
             session.commit()
 
             # daily auto-enrich of tracked listings (docs/05 §7) — external
-            # calls, fully guarded so a failure never breaks the scan. Runs
-            # before alert evaluation so its RentCast comps feed new_comp_sold.
+            # calls, fully guarded so a failure never breaks the scan.
             try:
                 from hb.pipelines import enrich
-                enriched = enrich.enrich_tracked(session, stats.new_sale_ids)
+                enriched = enrich.enrich_tracked(session)
                 if enriched:
                     log.info("auto-enriched %d tracked properties", enriched)
             except Exception as exc:  # noqa: BLE001
