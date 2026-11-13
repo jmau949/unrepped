@@ -36,13 +36,19 @@ import SchoolRatings from "../components/SchoolRatings";
 import TourPanel from "../components/TourPanel";
 import VerdictCard from "../components/VerdictCard";
 import type { PostureOut } from "../api/client";
-import { money, openHouseWindow, vsAsking } from "../lib/format";
+import { money, openHouseWindow, signedMoney, vsAsking } from "../lib/format";
 
 const EVENT_LABEL: Record<string, string> = {
   new: "Listed", price_change: "Price change", pending: "Pending",
   back_on_market: "Back on market", delisted: "Delisted", relisted: "Relisted",
   sold: "Sold", status_change: "Status change",
 };
+
+/** the home in Google Maps — an outbound search link, nothing is fetched */
+function mapsSearchUrl(d: Detail): string {
+  const query = `${d.address}, ${d.city ?? ""} ${d.zip ?? ""}`.trim();
+  return `https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query })}`;
+}
 
 export default function ListingDetail() {
   const { listingId } = useParams({ strict: false }) as { listingId: string };
@@ -99,7 +105,9 @@ export default function ListingDetail() {
       <div className="flex flex-wrap gap-4">
         <PhotoGallery photos={d.photos} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold">{d.address}</h1>
+          <h1 className="text-2xl font-bold">
+            <ExtLink href={mapsSearchUrl(d)} className="hover:underline">{d.address}</ExtLink>
+          </h1>
           <p className="text-sm text-slate-500">
             {d.city} {d.zip} · {d.beds}bd/{d.baths}ba · {d.sqft?.toLocaleString()} sqft
             {d.property.lot_sqft ? ` · ${d.property.lot_sqft.toLocaleString()} lot` : ""}
@@ -496,6 +504,10 @@ const dayOrder = (label: string) => {
 };
 
 const isRent = (label: string) => label.toLowerCase().includes("rent");
+const isPriceChange = (label: string) => label.toLowerCase().replace("changed", "change") === "price change";
+// a row whose price is the asking price at that moment (what a price change moved from)
+const isAsking = (r: TimelineRow) =>
+  r.price != null && !isRent(r.label) && !r.label.toLowerCase().includes("sold");
 
 function TimelinePanel({
   priceHistory, sqft, yearBuilt, events, listingGroup,
@@ -539,6 +551,12 @@ function TimelinePanel({
     .map((e) => ({ date: e.date, label: e.event, price: e.price || null }))
     .concat(appRows)
     .sort((a, b) => b.date.localeCompare(a.date) || dayOrder(b.label) - dayOrder(a.label));
+  // Realtor's price changes carry only the new price: the price moved from is the
+  // nearest older asking price (rows are newest-first).
+  rows.forEach((r, i) => {
+    if (r.old != null || r.price == null || !isPriceChange(r.label)) return;
+    r.old = rows.slice(i + 1).find(isAsking)?.price ?? null;
+  });
   if (yearBuilt && !rows.some((r) => r.label === "Built")) {
     rows.push({ date: String(yearBuilt), label: "Built", price: null });
   }
@@ -553,8 +571,10 @@ function TimelinePanel({
             <span className="w-28 shrink-0 font-medium">{e.label}</span>
             {e.old != null && e.price != null ? (
               <span className={e.price < e.old ? "text-red-600" : "text-emerald-600"}>
-                {money(e.old)} → {money(e.price)}
+                {money(e.old, false)} → {money(e.price, false)} ({signedMoney(e.price - e.old, false)})
               </span>
+            ) : e.price != null && isPriceChange(e.label) ? (
+              <span className="font-semibold">{money(e.price, false)}</span>
             ) : e.price != null && isRent(e.label) ? (
               <span className="font-semibold">{money(e.price, false)}/mo</span>
             ) : (
